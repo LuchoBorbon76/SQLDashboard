@@ -1,0 +1,20 @@
+﻿# Secrets
+.encryption-key
+servers.json
+servers.json.new
+
+# Runtime
+node_modules/
+tmp/
+*.log
+*.err
+
+# Generated SQL
+_metrics.sql
+_metrics_azure.sql
+_topqueries.sql
+
+# Editors
+.vscode/
+.idea/
+*.swp

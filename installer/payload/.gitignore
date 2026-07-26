@@ -1,0 +1,9 @@
+# Never commit these
+.encryption-key
+servers.json
+tmp/
+*.log
+*.err
+_metrics.sql
+_metrics_azure.sql
+_topqueries.sql

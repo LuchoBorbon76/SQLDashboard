@@ -1,0 +1,18 @@
+﻿{
+    "keywords":  [
+
+                 ],
+    "type":  "commonjs",
+    "dependencies":  {
+                         "mssql":  "^12.7.0"
+                     },
+    "main":  "server.mjs",
+    "scripts":  {
+                    "start":  "node server.mjs"
+                },
+    "name":  "sql-performance-dashboard",
+    "version":  "1.0.0",
+    "description":  "Live multi-instance SQL Server performance dashboard",
+    "author":  "Luis Fernando Borbon",
+    "license":  "MIT"
+}

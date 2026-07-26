@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SQL Performance Dashboard</title>
+<script>
+  (() => {
+    const saved = localStorage.getItem('theme');
+    const param = new URLSearchParams(window.location.search).get("scoutTheme");
+    const preferDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const theme = saved || param || (preferDark ? "dark" : "light");
+    document.documentElement.setAttribute("data-theme", theme);
+  })();
+</script>
+<style>
+:root{color-scheme:light;--cp-bg:#f7f4ef;--cp-bg-elevated:#fcfbf8;--cp-surface:#ffffff;--cp-surface-soft:#f5f5f5;--cp-border:#dedede;--cp-border-strong:#919191;--cp-text:#242424;--cp-text-muted:#5c5c5c;--cp-text-soft:#6f6f6f;--cp-accent:#b11f4b;--cp-accent-hover:#9a1a41;--cp-accent-soft:rgba(177,31,75,0.08);--cp-accent-fg:#ffffff;--cp-success:#16a34a;--cp-danger:#dc2626;--cp-warning:#f59e0b;--cp-link:#0078d4;--cp-highlight:rgba(177,31,75,0.12);}
+html[data-theme="dark"]{color-scheme:dark;--cp-bg:#3d3b3a;--cp-bg-elevated:#343231;--cp-surface:#292929;--cp-surface-soft:#2e2e2e;--cp-border:#474747;--cp-border-strong:#5f5f5f;--cp-text:#dedede;--cp-text-muted:#919191;--cp-text-soft:#b0b0b0;--cp-accent:#fd8ea1;--cp-accent-hover:#fb7b91;--cp-accent-soft:rgba(253,142,161,0.14);--cp-accent-fg:#1a1a1a;--cp-success:#4ade80;--cp-danger:#f87171;--cp-warning:#fbbf24;--cp-link:#4da6ff;--cp-highlight:rgba(253,142,161,0.12);}
+
+/* ===== Theme: Ocean (calming blue) ===== */
+html[data-theme="ocean-light"]{color-scheme:light;--cp-bg:#eef4f9;--cp-bg-elevated:#f6faff;--cp-surface:#ffffff;--cp-surface-soft:#e8f0f7;--cp-border:#cfdce8;--cp-border-strong:#7f9db8;--cp-text:#0f2740;--cp-text-muted:#4d6b87;--cp-text-soft:#6b8299;--cp-accent:#0369a1;--cp-accent-hover:#025585;--cp-accent-soft:rgba(3,105,161,0.10);--cp-accent-fg:#ffffff;--cp-success:#059669;--cp-danger:#dc2626;--cp-warning:#d97706;--cp-link:#0369a1;--cp-highlight:rgba(3,105,161,0.14);}
+html[data-theme="ocean-dark"]{color-scheme:dark;--cp-bg:#0b1e2e;--cp-bg-elevated:#0f273a;--cp-surface:#132e44;--cp-surface-soft:#183451;--cp-border:#26476a;--cp-border-strong:#3d6591;--cp-text:#dfe9f4;--cp-text-muted:#8ba7c4;--cp-text-soft:#a4bcd6;--cp-accent:#38bdf8;--cp-accent-hover:#0ea5e9;--cp-accent-soft:rgba(56,189,248,0.14);--cp-accent-fg:#0b1e2e;--cp-success:#4ade80;--cp-danger:#f87171;--cp-warning:#fbbf24;--cp-link:#7dd3fc;--cp-highlight:rgba(56,189,248,0.12);}
+
+/* ===== Theme: Emerald (fresh green) ===== */
+html[data-theme="emerald-light"]{color-scheme:light;--cp-bg:#f0f7f1;--cp-bg-elevated:#f8fbf8;--cp-surface:#ffffff;--cp-surface-soft:#e8f0e9;--cp-border:#cfe0d1;--cp-border-strong:#7ea082;--cp-text:#0f2418;--cp-text-muted:#4d6b56;--cp-text-soft:#6b8272;--cp-accent:#047857;--cp-accent-hover:#036045;--cp-accent-soft:rgba(4,120,87,0.10);--cp-accent-fg:#ffffff;--cp-success:#059669;--cp-danger:#dc2626;--cp-warning:#d97706;--cp-link:#0369a1;--cp-highlight:rgba(4,120,87,0.14);}
+html[data-theme="emerald-dark"]{color-scheme:dark;--cp-bg:#0d2018;--cp-bg-elevated:#122a20;--cp-surface:#153428;--cp-surface-soft:#1a3d2f;--cp-border:#265747;--cp-border-strong:#3d7d64;--cp-text:#dcefe3;--cp-text-muted:#8bb7a0;--cp-text-soft:#a4ccb7;--cp-accent:#34d399;--cp-accent-hover:#10b981;--cp-accent-soft:rgba(52,211,153,0.14);--cp-accent-fg:#0d2018;--cp-success:#4ade80;--cp-danger:#f87171;--cp-warning:#fbbf24;--cp-link:#7dd3fc;--cp-highlight:rgba(52,211,153,0.12);}
+
+/* ===== Theme: Cyberpunk (electric neon) ===== */
+html[data-theme="cyberpunk"]{color-scheme:dark;--cp-bg:#0a0a12;--cp-bg-elevated:#0f0f1a;--cp-surface:#141425;--cp-surface-soft:#1a1a2e;--cp-border:#2d2d4a;--cp-border-strong:#4d4d78;--cp-text:#e0e0ff;--cp-text-muted:#8a8ab8;--cp-text-soft:#a0a0c8;--cp-accent:#ff0080;--cp-accent-hover:#e6006c;--cp-accent-soft:rgba(255,0,128,0.14);--cp-accent-fg:#0a0a12;--cp-success:#00ff88;--cp-danger:#ff3366;--cp-warning:#ffcc00;--cp-link:#00e5ff;--cp-highlight:rgba(255,0,128,0.18);}
+
+/* ===== Theme: Solarized ===== */
+html[data-theme="solarized-light"]{color-scheme:light;--cp-bg:#fdf6e3;--cp-bg-elevated:#eee8d5;--cp-surface:#fdf6e3;--cp-surface-soft:#eee8d5;--cp-border:#e0dbc4;--cp-border-strong:#93a1a1;--cp-text:#586e75;--cp-text-muted:#93a1a1;--cp-text-soft:#839496;--cp-accent:#cb4b16;--cp-accent-hover:#b0400f;--cp-accent-soft:rgba(203,75,22,0.10);--cp-accent-fg:#fdf6e3;--cp-success:#859900;--cp-danger:#dc322f;--cp-warning:#b58900;--cp-link:#268bd2;--cp-highlight:rgba(203,75,22,0.14);}
+html[data-theme="solarized-dark"]{color-scheme:dark;--cp-bg:#002b36;--cp-bg-elevated:#073642;--cp-surface:#073642;--cp-surface-soft:#0a4655;--cp-border:#1d5460;--cp-border-strong:#586e75;--cp-text:#93a1a1;--cp-text-muted:#657b83;--cp-text-soft:#839496;--cp-accent:#dc322f;--cp-accent-hover:#c02826;--cp-accent-soft:rgba(220,50,47,0.14);--cp-accent-fg:#fdf6e3;--cp-success:#859900;--cp-danger:#dc322f;--cp-warning:#b58900;--cp-link:#268bd2;--cp-highlight:rgba(220,50,47,0.12);}
+
+/* ===== Theme: Nord (arctic blue-gray) ===== */
+html[data-theme="nord"]{color-scheme:dark;--cp-bg:#2e3440;--cp-bg-elevated:#3b4252;--cp-surface:#434c5e;--cp-surface-soft:#4c566a;--cp-border:#4c566a;--cp-border-strong:#616e88;--cp-text:#eceff4;--cp-text-muted:#d8dee9;--cp-text-soft:#c0c8d4;--cp-accent:#88c0d0;--cp-accent-hover:#8fbcbb;--cp-accent-soft:rgba(136,192,208,0.14);--cp-accent-fg:#2e3440;--cp-success:#a3be8c;--cp-danger:#bf616a;--cp-warning:#ebcb8b;--cp-link:#81a1c1;--cp-highlight:rgba(136,192,208,0.14);}
+
+/* ===== Theme: High Contrast (accessibility) ===== */
+html[data-theme="highcontrast"]{color-scheme:dark;--cp-bg:#000000;--cp-bg-elevated:#0a0a0a;--cp-surface:#141414;--cp-surface-soft:#1e1e1e;--cp-border:#4a4a4a;--cp-border-strong:#8f8f8f;--cp-text:#ffffff;--cp-text-muted:#d0d0d0;--cp-text-soft:#b0b0b0;--cp-accent:#ffff00;--cp-accent-hover:#ffe600;--cp-accent-soft:rgba(255,255,0,0.15);--cp-accent-fg:#000000;--cp-success:#00ff00;--cp-danger:#ff4040;--cp-warning:#ffaa00;--cp-link:#40b0ff;--cp-highlight:rgba(255,255,0,0.2);}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cp-bg);color:var(--cp-text);font-family:"Segoe UI",Aptos,Calibri,-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;line-height:1.5;}
+.layout{display:grid;grid-template-columns:260px 1fr;min-height:100vh;}
+@media(max-width:900px){.layout{grid-template-columns:1fr;}.sidebar{position:sticky;top:0;z-index:10;}}
+.sidebar .theme-btn{background:transparent;color:var(--cp-text-muted);border:1px solid var(--cp-border);padding:8px 10px;border-radius:10px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;}
+.sidebar .theme-btn:hover{background:var(--cp-surface-soft);border-color:var(--cp-border-strong);color:var(--cp-text);}
+.theme-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,0.3);z-index:50;max-height:60vh;overflow-y:auto;}
+.theme-wrap .theme-btn{width:100%;}
+.theme-menu.open{display:block;}
+.theme-menu-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--cp-text-muted);padding:8px 10px 6px;}
+.theme-opt{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;background:transparent;border:none;border-radius:8px;font-size:12px;color:var(--cp-text);cursor:pointer;text-align:left;font-family:inherit;font-weight:500;}
+.theme-opt:hover{background:var(--cp-surface-soft);}
+.theme-opt.active{background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:700;}
+.theme-opt .sw{width:20px;height:20px;border-radius:6px;border:1px solid var(--cp-border);flex-shrink:0;}
+.sidebar{background:var(--cp-bg-elevated);border-right:1px solid var(--cp-border);padding:20px 16px;display:flex;flex-direction:column;gap:12px;position:sticky;top:0;height:100vh;overflow:visible;}
+.sidebar h3{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--cp-text-muted);font-weight:600;}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 2px 6px;}
+.brand-logo{width:38px;height:38px;flex-shrink:0;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.2));}
+.brand-text{display:flex;flex-direction:column;line-height:1;}
+.brand-title{font-size:15px;font-weight:700;color:var(--cp-text);letter-spacing:-0.01em;}
+.brand-subtitle{font-size:9px;font-weight:800;letter-spacing:0.3em;color:var(--cp-accent);margin-top:3px;}
+.brand-tag{font-size:11px;color:var(--cp-text-muted);padding-left:2px;letter-spacing:0.02em;}
+.sidebar-footer{padding-top:10px;border-top:1px solid var(--cp-border);font-size:10px;color:var(--cp-text-soft);line-height:1.4;text-align:center;}
+.sidebar-footer .sig{color:var(--cp-accent);font-weight:600;}
+.sidebar-footer .disclaimer{margin-top:6px;font-size:9px;color:var(--cp-text-soft);opacity:0.85;}
+.sidebar h1{margin:0 0 4px;font-size:16px;font-weight:600;letter-spacing:-0.01em;}
+.sidebar .accent-dot{display:inline-block;width:8px;height:8px;background:var(--cp-accent);border-radius:50%;margin-right:8px;vertical-align:middle;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.server-list{display:flex;flex-direction:column;gap:6px;flex:1;overflow-y:auto;min-height:0;}
+.server-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:10px;cursor:pointer;transition:all 0.15s;position:relative;}
+.server-item:hover{background:var(--cp-surface-soft);border-color:var(--cp-border-strong);}
+.server-item.active{border-color:var(--cp-accent);background:var(--cp-accent-soft);}
+.server-item .icon{width:24px;height:24px;border-radius:6px;background:var(--cp-surface-soft);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--cp-text-muted);flex-shrink:0;position:relative;}
+.server-item .status-dot{position:absolute;bottom:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:var(--cp-text-muted);border:2px solid var(--cp-bg-elevated);}
+.server-item .status-dot.ok{background:var(--cp-success);}
+.server-item .status-dot.err{background:var(--cp-danger);}
+.server-item .status-dot.warn{background:var(--cp-warning);}
+.server-item.active .icon{background:var(--cp-accent);color:var(--cp-accent-fg);}
+.server-item .body{flex:1;min-width:0;}
+.server-item .body .name{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.server-item .body .meta{font-size:11px;color:var(--cp-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Consolas,monospace;}
+.server-item .del{opacity:0;color:var(--cp-text-muted);font-size:16px;padding:0 4px;line-height:1;transition:opacity 0.15s,color 0.15s;background:none;border:none;cursor:pointer;}
+.server-item:hover .del{opacity:1;}
+.server-item .del:hover{color:var(--cp-danger);}
+.sidebar .add-btn{background:var(--cp-accent);color:var(--cp-accent-fg);border:none;padding:10px;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;}
+.sidebar .add-btn:hover{background:var(--cp-accent-hover);}
+.main{padding:20px 24px;overflow-x:hidden;}
+header.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;margin-bottom:16px;gap:16px;flex-wrap:wrap;}
+header.topbar h2{margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em;}
+header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
+.controls{display:flex;align-items:center;gap:10px;}
+.live-indicator{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--cp-text-muted);}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--cp-success);box-shadow:0 0 0 0 var(--cp-success);animation:live-pulse 1.5s infinite;}
+.live-dot.stale{background:var(--cp-warning);animation:none;}
+.live-dot.err{background:var(--cp-danger);animation:none;}
+.live-dot.paused{background:var(--cp-text-muted);animation:none;}
+@keyframes live-pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,0.5);}70%{box-shadow:0 0 0 8px rgba(22,163,74,0);}100%{box-shadow:0 0 0 0 rgba(22,163,74,0);}}
+.countdown-ring{width:38px;height:38px;position:relative;}
+.countdown-ring svg{transform:rotate(-90deg);}
+.countdown-ring .ring-bg{fill:none;stroke:var(--cp-surface-soft);stroke-width:4;}
+.countdown-ring .ring-fg{fill:none;stroke:var(--cp-accent);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset 1s linear;}
+.countdown-ring .n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:16px;}
+.kpi{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:16px;position:relative;overflow:hidden;min-height:112px;}
+.kpi:hover{transform:none;}
+.kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--cp-text-muted);font-weight:600;padding-right:60px;line-height:1.3;}
+.kpi .value{font-size:26px;font-weight:600;margin-top:6px;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;}
+.kpi .hint{font-size:12px;color:var(--cp-text-soft);margin-top:4px;}
+.kpi.good{border-left:3px solid var(--cp-success);}
+.kpi.warn{border-left:3px solid var(--cp-warning);}
+.kpi.crit{border-left:3px solid var(--cp-danger);}
+.kpi .badge{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;}
+.kpi .delta{position:absolute;top:12px;right:12px;font-size:11px;padding:2px 8px;border-radius:10px;font-variant-numeric:tabular-nums;font-weight:600;}
+.delta.up{background:rgba(220,38,38,0.12);color:var(--cp-danger);}
+.delta.down{background:rgba(22,163,74,0.12);color:var(--cp-success);}
+.delta.same{background:var(--cp-surface-soft);color:var(--cp-text-muted);}
+.badge.good{background:rgba(22,163,74,0.12);color:var(--cp-success);}
+.badge.warn{background:rgba(245,158,11,0.15);color:var(--cp-warning);}
+.badge.crit{background:rgba(220,38,38,0.12);color:var(--cp-danger);}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.grid.three{grid-template-columns:2fr 1fr;}
+@media(max-width:960px){.grid,.grid.three{grid-template-columns:1fr;}}
+.card{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:20px;overflow:hidden;min-height:120px;}
+.card h2{margin:0 0 4px;font-size:15px;font-weight:600;letter-spacing:-0.01em;}
+.card .card-sub{color:var(--cp-text-muted);font-size:12px;margin-bottom:14px;}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;}
+th{text-align:left;padding:8px 10px;background:var(--cp-surface-soft);color:var(--cp-text-muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--cp-border);}
+td{padding:8px 10px;border-bottom:1px solid var(--cp-border);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--cp-surface-soft);}
+.num{text-align:right;font-variant-numeric:tabular-nums;}
+.mono{font-family:Consolas,"Courier New",monospace;font-size:12px;color:var(--cp-text-muted);}
+.query-text{font-family:Consolas,"Courier New",monospace;font-size:11px;color:var(--cp-text-soft);max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help;}
+.query-text:hover{white-space:normal;overflow:visible;color:var(--cp-text);}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:var(--cp-accent-soft);color:var(--cp-accent);}
+.pill.ok{background:rgba(22,163,74,0.12);color:var(--cp-success);}
+.pill.warn{background:rgba(245,158,11,0.15);color:var(--cp-warning);}
+.pill.crit{background:rgba(220,38,38,0.12);color:var(--cp-danger);}
+.pill.muted{background:var(--cp-surface-soft);color:var(--cp-text-muted);}
+.bar-row{display:grid;grid-template-columns:180px 1fr 90px;gap:10px;align-items:center;padding:6px 0;font-size:12px;}
+.bar-row .name{font-family:Consolas,"Courier New",monospace;font-size:11px;color:var(--cp-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bar-row .bar-bg{height:16px;background:var(--cp-surface-soft);border-radius:8px;overflow:hidden;position:relative;}
+.bar-row .bar-fill{height:100%;background:linear-gradient(90deg,var(--cp-accent),var(--cp-accent-hover));border-radius:8px;}
+.bar-row .bar-fill.warn{background:linear-gradient(90deg,var(--cp-warning),#e59209);}
+.bar-row .bar-fill.crit{background:linear-gradient(90deg,var(--cp-danger),#b91c1c);}
+.bar-row .val{text-align:right;color:var(--cp-text-muted);font-variant-numeric:tabular-nums;font-size:12px;}
+.donut{display:flex;flex-direction:column;align-items:center;gap:14px;}
+.donut-svg{width:180px;height:180px;}
+.donut-legend{display:flex;flex-direction:column;gap:6px;font-size:12px;width:100%;}
+.donut-legend .item{display:flex;align-items:center;gap:8px;padding:4px 0;}
+.donut-legend .sw{width:12px;height:12px;border-radius:3px;flex-shrink:0;}
+.donut-legend .lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.donut-legend .v{color:var(--cp-text-muted);}
+.empty{text-align:center;padding:20px;color:var(--cp-text-soft);font-style:italic;}
+.heat-cell{padding:2px 8px;border-radius:6px;display:inline-block;font-weight:600;font-variant-numeric:tabular-nums;}
+.dbstate-ONLINE{color:var(--cp-success);font-weight:600;}
+.scroll{max-height:420px;overflow-y:auto;margin:-4px;padding:4px;}
+.narrative{background:var(--cp-accent-soft);border-left:3px solid var(--cp-accent);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;line-height:1.6;}
+.narrative b{color:var(--cp-accent);}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.mini-kpi{padding:10px;background:var(--cp-surface-soft);border-radius:8px;}
+.mini-kpi .l{font-size:10px;color:var(--cp-text-muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;}
+.mini-kpi .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;}
+.footer{color:var(--cp-text-soft);font-size:12px;text-align:center;padding:16px;}
+.error-banner{background:rgba(220,38,38,0.1);border:1px solid var(--cp-danger);color:var(--cp-danger);padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:Consolas,monospace;display:none;}
+.error-banner.show{display:block;}
+.btn{background:var(--cp-accent);color:var(--cp-accent-fg);border:none;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:background 0.15s;}
+.btn:hover{background:var(--cp-accent-hover);}
+.btn.ghost{background:transparent;color:var(--cp-text-muted);border:1px solid var(--cp-border);}
+.btn.ghost:hover{background:var(--cp-surface-soft);}
+.btn.danger{background:var(--cp-danger);}
+.btn.danger:hover{background:#b91c1c;}
+.btn:disabled{opacity:0.5;cursor:not-allowed;}
+.skeleton{background:linear-gradient(90deg,var(--cp-surface-soft) 0%,var(--cp-border) 50%,var(--cp-surface-soft) 100%);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:6px;height:24px;}
+@keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* Modal */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-backdrop.show{display:flex;}
+.modal{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,0.3);}
+.modal h2{margin:0 0 4px;font-size:18px;font-weight:600;}
+.modal .sub{color:var(--cp-text-muted);font-size:12px;margin-bottom:16px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--cp-text-muted);font-weight:600;margin-bottom:4px;}
+.field input,.field select{width:100%;padding:8px 10px;background:var(--cp-bg);color:var(--cp-text);border:1px solid var(--cp-border);border-radius:8px;font-size:13px;font-family:inherit;}
+.field input:focus,.field select:focus{outline:none;border-color:var(--cp-accent);}
+.field .hint{font-size:11px;color:var(--cp-text-soft);margin-top:4px;}
+.modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
+.modal-lg{max-width:900px;}
+.detail-tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--cp-border);}
+.detail-tab{background:none;border:none;color:var(--cp-text-muted);font-weight:600;font-size:12px;padding:8px 14px;cursor:pointer;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:0.06em;}
+.detail-tab.active{color:var(--cp-accent);border-bottom-color:var(--cp-accent);}
+.detail-tab:hover{color:var(--cp-text);}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+.code-block{background:var(--cp-bg);border:1px solid var(--cp-border);border-radius:8px;padding:12px;font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.5;color:var(--cp-text);white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto;}
+.code-block.plan{white-space:pre;word-break:normal;}
+.detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;}
+.detail-meta .mini-kpi{padding:8px 10px;}
+.copy-btn{position:absolute;top:6px;right:6px;background:var(--cp-surface);border:1px solid var(--cp-border);color:var(--cp-text-muted);padding:3px 8px;font-size:10px;border-radius:6px;cursor:pointer;font-weight:600;}
+.copy-btn:hover{color:var(--cp-accent);border-color:var(--cp-accent);}
+.copy-wrap{position:relative;}
+tr.clickable{cursor:pointer;}
+tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding-left:7px;}
+.card.disabled{opacity:0.55;position:relative;}
+.card.disabled::after{content:"Not available on Azure SQL Database";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--cp-surface-soft);border:1px dashed var(--cp-border-strong);color:var(--cp-text-muted);padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;letter-spacing:0.02em;pointer-events:none;}
+.engine-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;background:var(--cp-accent-soft);color:var(--cp-accent);margin-left:10px;vertical-align:middle;}
+/* Traffic-light health indicator */
+.semaphore{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 8px;border-radius:24px;background:var(--cp-surface-soft);border:1px solid var(--cp-border);cursor:pointer;user-select:none;position:relative;}
+.semaphore:hover{border-color:var(--cp-border-strong);}
+.semaphore .lights{display:flex;flex-direction:column;gap:3px;padding:4px;background:#111;border-radius:10px;}
+.semaphore .light{width:10px;height:10px;border-radius:50%;background:#2a2a2a;box-shadow:inset 0 -1px 2px rgba(0,0,0,0.6);}
+.semaphore.critical .light.r{background:var(--cp-danger);box-shadow:0 0 8px var(--cp-danger),inset 0 -1px 2px rgba(0,0,0,0.5);animation:sblink 0.9s infinite;}
+.semaphore.warning .light.y{background:var(--cp-warning);box-shadow:0 0 8px var(--cp-warning),inset 0 -1px 2px rgba(0,0,0,0.5);animation:sblink 1.4s infinite;}
+.semaphore.healthy .light.g{background:var(--cp-success);box-shadow:0 0 8px var(--cp-success),inset 0 -1px 2px rgba(0,0,0,0.5);animation:sblink 2s infinite;}
+@keyframes sblink{0%,100%{opacity:1;}50%{opacity:0.55;}}
+.semaphore .label{display:flex;flex-direction:column;line-height:1.1;}
+.semaphore .label .l1{font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--cp-text-muted);font-weight:700;}
+.semaphore .label .l2{font-size:12px;font-weight:700;color:var(--cp-text);}
+.semaphore.critical .label .l2{color:var(--cp-danger);}
+.semaphore.warning .label .l2{color:var(--cp-warning);}
+.semaphore.healthy .label .l2{color:var(--cp-success);}
+.semaphore .caret{color:var(--cp-text-muted);font-size:9px;margin-left:2px;}
+.health-popover{position:absolute;top:calc(100% + 6px);right:0;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:12px;padding:14px 16px;box-shadow:0 12px 32px rgba(0,0,0,0.25);min-width:300px;max-width:400px;font-size:12px;line-height:1.5;color:var(--cp-text);z-index:30;display:none;text-align:left;cursor:default;}
+.semaphore.open .health-popover{display:block;}
+.health-popover h4{margin:0 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;}
+.health-popover h4.crit{color:var(--cp-danger);}
+.health-popover h4.warn{color:var(--cp-warning);}
+.health-popover h4.ok{color:var(--cp-success);}
+.health-popover ul{margin:0 0 10px;padding-left:16px;}
+.health-popover ul:last-child{margin-bottom:0;}
+.health-popover li{margin-bottom:3px;}
+.health-popover .none{color:var(--cp-text-muted);font-style:italic;font-size:12px;}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div>
+      <div class="brand">
+        <svg class="brand-logo" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="var(--cp-accent)"/>
+              <stop offset="100%" stop-color="var(--cp-accent-hover)"/>
+            </linearGradient>
+          </defs>
+          <ellipse cx="20" cy="9" rx="14" ry="4.5" fill="url(#lg1)"/>
+          <path d="M6 9 v9 c0 2.5 6.3 4.5 14 4.5 s14 -2 14 -4.5 v-9" fill="none" stroke="url(#lg1)" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M6 18 v9 c0 2.5 6.3 4.5 14 4.5 s14 -2 14 -4.5 v-9" fill="none" stroke="url(#lg1)" stroke-width="2.5" stroke-linecap="round"/>
+          <polyline points="10,32 15,26 20,29 25,22 30,25" fill="none" stroke="var(--cp-success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="30" cy="25" r="2" fill="var(--cp-success)"/>
+        </svg>
+        <div class="brand-text">
+          <div class="brand-title">SQL Performance</div>
+          <div class="brand-subtitle">DASHBOARD</div>
+        </div>
+      </div>
+      <div class="brand-tag">Multi-instance live monitoring</div>
+    </div>
+    <h3>Servers</h3>
+    <div class="server-list" id="server-list"><div class="empty" style="font-size:12px;">Loading…</div></div>
+    <button class="add-btn" id="add-server-btn">+ Add server</button>
+    <div class="theme-wrap" style="position:relative;">
+      <button class="theme-btn" id="theme-btn" title="Choose theme">🎨 Theme
+        <span id="current-theme" style="opacity:0.7;font-size:11px;margin-left:4px;"></span>
+      </button>
+      <div class="theme-menu" id="theme-menu">
+        <div class="theme-menu-title">Choose theme</div>
+        <button class="theme-opt" data-theme="light"><span class="sw" style="background:linear-gradient(135deg,#f7f4ef 50%,#b11f4b 50%)"></span>Clawpilot Light</button>
+        <button class="theme-opt" data-theme="dark"><span class="sw" style="background:linear-gradient(135deg,#3d3b3a 50%,#fd8ea1 50%)"></span>Clawpilot Dark</button>
+        <button class="theme-opt" data-theme="ocean-light"><span class="sw" style="background:linear-gradient(135deg,#eef4f9 50%,#0369a1 50%)"></span>Ocean Light</button>
+        <button class="theme-opt" data-theme="ocean-dark"><span class="sw" style="background:linear-gradient(135deg,#0b1e2e 50%,#38bdf8 50%)"></span>Ocean Dark</button>
+        <button class="theme-opt" data-theme="emerald-light"><span class="sw" style="background:linear-gradient(135deg,#f0f7f1 50%,#047857 50%)"></span>Emerald Light</button>
+        <button class="theme-opt" data-theme="emerald-dark"><span class="sw" style="background:linear-gradient(135deg,#0d2018 50%,#34d399 50%)"></span>Emerald Dark</button>
+        <button class="theme-opt" data-theme="cyberpunk"><span class="sw" style="background:linear-gradient(135deg,#0a0a12 50%,#ff0080 50%)"></span>Cyberpunk</button>
+        <button class="theme-opt" data-theme="solarized-light"><span class="sw" style="background:linear-gradient(135deg,#fdf6e3 50%,#cb4b16 50%)"></span>Solarized Light</button>
+        <button class="theme-opt" data-theme="solarized-dark"><span class="sw" style="background:linear-gradient(135deg,#002b36 50%,#dc322f 50%)"></span>Solarized Dark</button>
+        <button class="theme-opt" data-theme="nord"><span class="sw" style="background:linear-gradient(135deg,#2e3440 50%,#88c0d0 50%)"></span>Nord</button>
+        <button class="theme-opt" data-theme="highcontrast"><span class="sw" style="background:linear-gradient(135deg,#000 50%,#ffff00 50%)"></span>High Contrast</button>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      Created by <span class="sig">Luis Fernando Borbon</span><br>
+      <span style="opacity:0.7;">© 2026 · v1.0</span>
+      <div class="disclaimer">
+        Provided <b>as-is</b>, without warranty of any kind.
+        Not affiliated with or endorsed by Microsoft.
+        Read-only DMV queries; verify recommendations before applying.
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h2 id="current-server-title">No server selected</h2>
+        <div class="sub" id="current-server-sub"></div>
+      </div>
+      <div class="semaphore" id="semaphore" title="Click for details">
+        <div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div>
+        <div class="label"><span class="l1">Health</span><span class="l2" id="health-label">…</span></div>
+        <span class="caret">▾</span>
+        <div class="health-popover" id="health-popover"></div>
+      </div>
+      <div class="controls">
+        <label style="font-size:11px;color:var(--cp-text-muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;display:flex;align-items:center;gap:6px;">
+          Refresh
+          <select id="interval-sel" class="btn ghost" style="padding:6px 10px;font-size:12px;">
+            <option value="30">30 s</option>
+            <option value="60">1 min</option>
+            <option value="120">2 min</option>
+            <option value="300">5 min</option>
+            <option value="600">10 min</option>
+            <option value="1800">30 min</option>
+          </select>
+        </label>
+        <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">⏸ Pause</button>
+        <button class="btn" id="refresh-btn">Refresh now</button>
+        <div class="live-indicator">
+          <div class="live-dot" id="live-dot"></div>
+          <div id="live-status">Loading…</div>
+          <div class="countdown-ring">
+            <svg width="38" height="38"><circle class="ring-bg" cx="19" cy="19" r="15"/><circle class="ring-fg" id="ring-fg" cx="19" cy="19" r="15" stroke-dasharray="94.25" stroke-dashoffset="0"/></svg>
+            <div class="n" id="countdown">30</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="error-banner" id="err"></div>
+    <div class="narrative" id="narrative">Select a server to view metrics…</div>
+    <div class="kpi-grid" id="kpis"></div>
+
+    <div class="grid three">
+      <div class="card"><h2>Top Waits</h2><div class="card-sub">Cumulative since instance start — where SQL Server spends its time</div><div id="waits"><div class="skeleton" style="height:200px"></div></div></div>
+      <div class="card" id="buffer-card"><h2>Buffer Pool by Database</h2><div class="card-sub">RAM used for cached pages per DB</div><div class="donut" id="buffer-donut"><div class="skeleton" style="height:200px;width:100%"></div></div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Top Queries by CPU (Query Store)</h2>
+      <div class="card-sub">Highest cumulative CPU across all user databases with Query Store enabled</div>
+      <div class="scroll">
+      <table><thead><tr>
+        <th>DB</th><th>QID</th><th class="num">Execs</th><th class="num">Total CPU (ms)</th>
+        <th class="num">Avg CPU (ms)</th><th class="num">Avg Dur (ms)</th><th class="num">Avg Reads</th>
+        <th>Last Exec</th><th>Query</th>
+      </tr></thead><tbody id="top-queries"></tbody></table>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h2>File I/O Latency</h2><div class="card-sub">Per-file read/write stalls — green &lt;10ms, amber 10–20ms, red &gt;20ms</div>
+        <div class="scroll"><table><thead><tr>
+          <th>Database</th><th>File</th><th>Type</th><th class="num">Size MB</th><th class="num">Read ms</th><th class="num">Write ms</th>
+        </tr></thead><tbody id="file-io"></tbody></table></div>
+      </div>
+      <div class="card"><h2>Databases</h2><div class="card-sub">Size, state, and backup age</div>
+        <div class="scroll"><table><thead><tr>
+          <th>Name</th><th>State</th><th>Recovery</th><th class="num">Data MB</th><th class="num">Log MB</th><th>Last Full</th><th>QS</th>
+        </tr></thead><tbody id="databases"></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h2>Missing Indexes</h2><div class="card-sub">Optimizer-suggested indexes ranked by improvement score</div><div id="missing-idx"></div></div>
+      <div class="card" id="tempdb-card"><h2>TempDB Usage</h2><div class="card-sub">Space allocation breakdown</div><div id="tempdb"></div></div>
+    </div>
+
+    <div class="card"><h2>Active Sessions</h2><div class="card-sub">Non-system requests currently running</div><div id="active"></div></div>
+
+  </main>
+</div>
+
+<!-- Detail modal (queries, indexes) -->
+<div class="modal-backdrop" id="detail-backdrop">
+  <div class="modal modal-lg">
+    <h2 id="detail-title">Detail</h2>
+    <div class="sub" id="detail-sub"></div>
+    <div id="detail-body"><div class="skeleton" style="height:200px"></div></div>
+    <div class="actions">
+      <button class="btn ghost" id="detail-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add server modal -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <h2>Add SQL Server</h2>
+    <div class="sub">Test connection runs before saving. Credentials are stored locally in <code>servers.json</code>.</div>
+    <div class="warning-box"><b>⚠ Note:</b> passwords are stored in plain text in servers.json on this machine. Prefer Windows or Entra ID Integrated auth when possible.</div>
+    <div class="field">
+      <label>Display name</label>
+      <input type="text" id="f-name" placeholder="Prod SQL West">
+    </div>
+    <div class="field">
+      <label>Server address</label>
+      <input type="text" id="f-server" placeholder="myserver.database.windows.net or HOST\INSTANCE">
+      <div class="hint">Format: <code>host\instance</code>, <code>tcp:host,port</code>, or <code>*.database.windows.net</code></div>
+    </div>
+    <div class="field">
+      <label>Authentication</label>
+      <select id="f-auth">
+        <option value="windows">Windows Integrated (SSPI)</option>
+        <option value="sqlauth">SQL Server Authentication</option>
+        <option value="azuread-integrated">Entra ID Integrated (silent, uses your Windows account)</option>
+        <option value="azuread-password">Entra ID Password</option>
+        <option value="azuread-interactive">Entra ID Interactive / MFA (browser popup, first time only)</option>
+      </select>
+    </div>
+    <div class="field" id="f-user-field" style="display:none;">
+      <label id="f-user-label">Username</label>
+      <input type="text" id="f-user" placeholder="username or user@domain.com">
+    </div>
+    <div class="field" id="f-pw-field" style="display:none;">
+      <label>Password</label>
+      <input type="password" id="f-pw" placeholder="•••••••">
+    </div>
+    <div class="field">
+      <label>Database (optional — required for Azure SQL Database)</label>
+      <input type="text" id="f-database" placeholder="master (default) or e.g. mydb">
+      <div class="hint">Leave blank for on-prem. For Azure SQL Database, enter the specific database name.</div>
+    </div>
+    <div class="field" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div>
+        <label>Encrypt</label>
+        <select id="f-encrypt">
+          <option value="true" selected>Mandatory (recommended)</option>
+          <option value="false">Optional</option>
+        </select>
+      </div>
+      <div>
+        <label>Trust Server Certificate</label>
+        <select id="f-trustcert">
+          <option value="true" selected>Yes (skip cert validation)</option>
+          <option value="false">No (validate CA chain)</option>
+        </select>
+      </div>
+    </div>
+    <div class="error-banner" id="modal-err" style="display:none;"></div>
+    <div class="actions">
+      <button class="btn ghost" id="modal-cancel">Cancel</button>
+      <button class="btn" id="modal-save">Test &amp; Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const MIN_INTERVAL = 30;
+let refreshSeconds = Math.max(MIN_INTERVAL, Number(localStorage.getItem('refreshSeconds')) || 30);
+let countdown = refreshSeconds;
+let servers = [];
+let activeServerId = null;
+let fetching = false;
+let paused = false;
+// Per-server client-side cache: id -> { data, prevData, lastFetchAt }
+// Lets us render cached data instantly when switching servers, without polling
+// inactive ones.
+const serverState = new Map();
+function stateFor(id){
+  if(!serverState.has(id)) serverState.set(id, { data:null, prevData:null, lastFetchAt:0 });
+  return serverState.get(id);
+}
+
+const el = (id) => document.getElementById(id);
+const fmtN = (n)=> n==null?"-":Number(n).toLocaleString(undefined,{maximumFractionDigits:1});
+const fmtInt = (n)=> n==null?"-":Number(n).toLocaleString();
+const fmtDate = (s)=> !s?"never":new Date(s).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+const ago = (s)=> {
+  if(!s) return "never";
+  const d = new Date(s), diff = (Date.now()-d.getTime())/1000;
+  if(diff<60) return Math.round(diff)+"s ago";
+  if(diff<3600) return Math.round(diff/60)+"m ago";
+  if(diff<86400) return Math.round(diff/3600)+"h ago";
+  return Math.round(diff/86400)+"d ago";
+};
+const esc = (s)=> String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+const THEME_LABELS = {
+  'light':'Clawpilot Light','dark':'Clawpilot Dark',
+  'ocean-light':'Ocean Light','ocean-dark':'Ocean Dark',
+  'emerald-light':'Emerald Light','emerald-dark':'Emerald Dark',
+  'cyberpunk':'Cyberpunk','solarized-light':'Solarized Light','solarized-dark':'Solarized Dark',
+  'nord':'Nord','highcontrast':'High Contrast'
+};
+function updateThemeUi(){
+  const cur = document.documentElement.getAttribute('data-theme');
+  el('current-theme').textContent = THEME_LABELS[cur] || '';
+  el('theme-menu').querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.theme===cur));
+}
+el('theme-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  el('theme-menu').classList.toggle('open');
+});
+el('theme-menu').querySelectorAll('.theme-opt').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const t = btn.dataset.theme;
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('theme', t);
+    updateThemeUi();
+    el('theme-menu').classList.remove('open');
+  });
+});
+document.addEventListener('click', (e)=>{
+  if (!el('theme-btn').contains(e.target) && !el('theme-menu').contains(e.target)) {
+    el('theme-menu').classList.remove('open');
+  }
+});
+updateThemeUi();
+el('refresh-btn').addEventListener('click', ()=>{ countdown = 0; fetchMetrics(); });
+el('pause-btn').addEventListener('click', ()=>{
+  paused = !paused;
+  el('pause-btn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+  el('pause-btn').classList.toggle('ghost', !paused);
+  el('live-dot').classList.toggle('paused', paused);
+  if(paused){ setStatus('paused','Paused'); }
+  else { countdown = refreshSeconds; setStatus('ok','Resumed'); }
+});
+
+// Interval selector
+function formatCountdown(s){
+  if (s < 60) return String(s);
+  if (s < 3600) return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  return Math.floor(s/3600) + 'h';
+}
+el('interval-sel').value = String(refreshSeconds);
+el('interval-sel').addEventListener('change', ()=>{
+  const v = Math.max(MIN_INTERVAL, parseInt(el('interval-sel').value, 10) || 30);
+  refreshSeconds = v;
+  localStorage.setItem('refreshSeconds', String(v));
+  countdown = refreshSeconds;
+  el('countdown').textContent = formatCountdown(refreshSeconds);
+});
+
+// Modal handlers
+el('add-server-btn').addEventListener('click', openModal);
+el('modal-cancel').addEventListener('click', closeModal);
+el('modal-backdrop').addEventListener('click', (e)=>{ if(e.target.id==='modal-backdrop') closeModal(); });
+el('f-auth').addEventListener('change', updateAuthFields);
+el('modal-save').addEventListener('click', saveServer);
+
+function openModal(){
+  el('f-name').value = '';
+  el('f-server').value = '';
+  el('f-auth').value = 'windows';
+  el('f-user').value = '';
+  el('f-pw').value = '';
+  el('f-database').value = '';
+  el('f-encrypt').value = 'true';
+  el('f-trustcert').value = 'true';
+  el('modal-err').style.display = 'none';
+  updateAuthFields();
+  el('modal-backdrop').classList.add('show');
+  setTimeout(()=>el('f-name').focus(), 50);
+}
+function closeModal(){ el('modal-backdrop').classList.remove('show'); }
+function updateAuthFields(){
+  const a = el('f-auth').value;
+  // Integrated can optionally take a user; interactive/password/sqlauth all take user
+  const showUser = a!=='windows';
+  const showPw = a==='sqlauth' || a==='azuread-password';
+  el('f-user-field').style.display = showUser ? 'block' : 'none';
+  el('f-pw-field').style.display = showPw ? 'block' : 'none';
+  el('f-user-label').textContent = a.startsWith('azuread') ? 'Entra ID user (user@domain.com)' : 'SQL login';
+}
+
+async function saveServer(){
+  const body = {
+    name: el('f-name').value.trim(),
+    server: el('f-server').value.trim(),
+    auth: el('f-auth').value,
+    user: el('f-user').value.trim(),
+    password: el('f-pw').value,
+    database: el('f-database').value.trim(),
+    encrypt: el('f-encrypt').value === 'true',
+    trustCert: el('f-trustcert').value === 'true',
+  };
+  if(!body.name || !body.server){ showModalErr('Name and server are required.'); return; }
+  const saveBtn = el('modal-save');
+  saveBtn.disabled = true; saveBtn.textContent = 'Testing connection…';
+  try {
+    const r = await fetch('/api/servers', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.error||'Failed');
+    await loadServers();
+    setActiveServer(data.id);
+    closeModal();
+  } catch(e){ showModalErr(e.message); }
+  finally { saveBtn.disabled = false; saveBtn.textContent = 'Test & Save'; }
+}
+function showModalErr(msg){ el('modal-err').textContent = msg; el('modal-err').style.display='block'; }
+
+async function loadServers(){
+  try {
+    const r = await fetch('/api/servers');
+    servers = await r.json();
+    renderServerList();
+  } catch(e){ console.error(e); }
+}
+
+function renderServerList(){
+  const html = servers.map(s => {
+    const initials = s.name.split(/[\s-_]/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase() || 'S';
+    const authLabel = ({windows:'WinAuth', sqlauth:'SQL', 'azuread-integrated':'Entra', 'azuread-password':'Entra-PW', 'azuread-interactive':'Entra-MFA'})[s.auth] || s.auth;
+    const st = serverState.get(s.id);
+    let statusCls = '';
+    if (st) {
+          if (st.lastError) statusCls = 'err';
+          else if (st.data) {
+            const health = computeHealth(st.data);
+            statusCls = health.level === 'critical' ? 'err' : health.level === 'warning' ? 'warn' : 'ok';
+          }
+    }
+    return `<div class="server-item ${s.id===activeServerId?'active':''}" data-id="${esc(s.id)}">
+          <div class="icon">${esc(initials)}<div class="status-dot ${statusCls}"></div></div>
+          <div class="body">
+            <div class="name">${esc(s.name)}</div>
+            <div class="meta">${esc(s.server)} · ${authLabel}</div>
+          </div>
+          <button class="del" data-del="${esc(s.id)}" title="Remove">×</button>
+    </div>`;
+  }).join('');
+  el('server-list').innerHTML = html || '<div class="empty" style="font-size:12px;">No servers. Click + Add.</div>';
+  el('server-list').querySelectorAll('.server-item').forEach(item=>{
+    item.addEventListener('click', (e)=>{
+          if(e.target.dataset.del) return;
+          setActiveServer(item.dataset.id);
+    });
+  });
+  el('server-list').querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          const id = btn.dataset.del;
+          const s = servers.find(x=>x.id===id);
+          if(!confirm(`Remove server "${s?.name||id}"?`)) return;
+          await fetch('/api/servers/'+encodeURIComponent(id), {method:'DELETE'});
+          const wasActive = id===activeServerId;
+          await loadServers();
+          serverState.delete(id);
+          if(wasActive){
+            activeServerId = servers[0]?.id || null;
+            if(activeServerId) setActiveServer(activeServerId);
+            else { renderEmpty(); }
+          }
+    });
+  });
+}
+
+function renderEmpty(){
+  el('current-server-title').textContent = 'No server selected';
+  el('current-server-sub').textContent = 'Add a server to start monitoring.';
+  el('narrative').textContent = 'Select or add a server.';
+  el('kpis').innerHTML = '';
+  ['waits','buffer-donut','top-queries','file-io','databases','missing-idx','tempdb','active'].forEach(id=>el(id).innerHTML='');
+}
+
+function setActiveServer(id){
+  activeServerId = id;
+  countdown = refreshSeconds;
+  renderServerList();
+  const st = stateFor(id);
+  if (st.data) {
+    // Instantly show cached snapshot from the last time this server was viewed
+    render(st.data, st.prevData);
+    const ageS = Math.round((Date.now() - st.lastFetchAt)/1000);
+    setStatus('stale', `Cached (${ageS}s old) · refreshing…`);
+  } else {
+    renderEmpty();
+    setStatus('ok','Loading…');
+  }
+  fetchMetrics();
+}
+
+function setStatus(state, text){
+  const dot = el('live-dot');
+  dot.classList.remove('stale','err','paused');
+  if(state==='err') dot.classList.add('err');
+  else if(state==='stale') dot.classList.add('stale');
+  else if(state==='paused') dot.classList.add('paused');
+  el('live-status').textContent = text;
+}
+
+function delta(cur, prev, invert=false){
+  if(prev==null || cur==null || cur===prev) return {cls:'same', txt:''};
+  const d = Number(cur) - Number(prev);
+  if(!isFinite(d) || d===0) return {cls:'same', txt:''};
+  const positive = d > 0;
+  const bad = invert ? !positive : positive;
+  const arrow = positive?'▲':'▼';
+  return {cls: bad?'up':'down', txt: `${arrow} ${Math.abs(d).toLocaleString(undefined,{maximumFractionDigits:1})}`};
+}
+
+async function fetchMetrics(){
+  if(fetching || !activeServerId) return;
+  fetching = true;
+  const requestedId = activeServerId;
+  setStatus('ok','Refreshing…');
+  try {
+    const r = await fetch('/api/metrics?serverId='+encodeURIComponent(requestedId), {cache:'no-store'});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
+    // Store per-server cache regardless of whether user has switched again
+    const st = stateFor(requestedId);
+    st.prevData = st.data;
+    st.data = data;
+    st.lastFetchAt = Date.now();
+    st.lastError = null;
+    // Only render if the user is still looking at this server
+    if (requestedId === activeServerId) {
+      render(st.data, st.prevData);
+      el('err').classList.remove('show');
+      if(!paused) setStatus('ok', `Updated ${new Date().toLocaleTimeString()}`);
+    }
+    renderServerList();
+  } catch(e){
+    const st = stateFor(requestedId); st.lastError = e.message;
+    if (requestedId === activeServerId) {
+      setStatus('err','Error');
+      el('err').textContent = `Fetch failed: ${e.message}`;
+      el('err').classList.add('show');
+    }
+    renderServerList();
+  } finally { fetching = false; }
+}
+
+function computeHealth(DATA){
+  const i = DATA.instance || {};
+  const isAzureDb = DATA.engine === 'azure-sqldb';
+  const critical = [], warning = [];
+
+  if ((i.blocked_requests||0) > 0) critical.push(`${i.blocked_requests} blocked session(s)`);
+
+  if (isAzureDb) {
+    const cpu = i.avg_cpu_percent||0, mem = i.avg_memory_percent||0;
+    const dio = i.avg_data_io_percent||0, lio = i.avg_log_write_percent||0;
+    if (cpu >= 90) critical.push(`CPU ${cpu.toFixed(0)}% (≥90%)`);
+    else if (cpu >= 70) warning.push(`CPU ${cpu.toFixed(0)}% elevated`);
+    if (dio >= 90) critical.push(`Data I/O ${dio.toFixed(0)}% (throttling)`);
+    else if (dio >= 70) warning.push(`Data I/O ${dio.toFixed(0)}%`);
+    if (lio >= 90) critical.push(`Log Write ${lio.toFixed(0)}% (throttling)`);
+    else if (lio >= 70) warning.push(`Log Write ${lio.toFixed(0)}%`);
+    if (mem >= 95) warning.push(`Memory ${mem.toFixed(0)}%`);
+  } else {
+    const ple = i.page_life_expectancy;
+    if (ple != null) {
+      if (ple < 60) critical.push(`Page Life Expectancy ${ple}s (<60s)`);
+      else if (ple < 300) warning.push(`Page Life Expectancy ${ple}s (<300s)`);
+    }
+    const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
+    if (bhr < 90) critical.push(`Buffer cache hit ratio ${bhr.toFixed(1)}%`);
+    else if (bhr < 98) warning.push(`Buffer cache hit ratio ${bhr.toFixed(1)}%`);
+  }
+
+  const active = i.active_requests || 0;
+  if (active >= 100) critical.push(`${active} active requests`);
+  else if (active >= 30) warning.push(`${active} active requests`);
+
+  const io = DATA.file_io || [];
+  const badIo = io.filter(f => (f.avg_read_latency_ms||0) > 20 || (f.avg_write_latency_ms||0) > 20);
+  const midIo = io.filter(f => (f.avg_read_latency_ms||0) > 10 || (f.avg_write_latency_ms||0) > 10);
+  if (badIo.length >= 2) critical.push(`${badIo.length} files with I/O >20ms`);
+  else if (badIo.length === 1) warning.push(`1 file with I/O >20ms`);
+  else if (midIo.length >= 3) warning.push(`${midIo.length} files with I/O 10–20ms`);
+
+  const badWaits = ['PAGEIOLATCH_SH','PAGEIOLATCH_EX','WRITELOG','RESOURCE_SEMAPHORE','ASYNC_NETWORK_IO'];
+  const topWait = (DATA.waits||[])[0];
+  if (topWait && badWaits.some(w => String(topWait.wait_type||'').includes(w))) {
+    warning.push(`Dominant wait: ${topWait.wait_type}`);
+  }
+
+  const mi = DATA.missing_indexes || [];
+  const highScore = mi.filter(m => (m.improvement_score||0) > 100000);
+  if (highScore.length > 0) warning.push(`${highScore.length} high-impact missing indexes`);
+
+  if (!isAzureDb) {
+    const dbs = DATA.databases || [];
+    const never = dbs.filter(d => !['tempdb','model','master','msdb'].includes(d.name) && !d.last_full_backup);
+    const stale = dbs.filter(d => !['tempdb','model','master','msdb'].includes(d.name) && d.last_full_backup &&
+      (Date.now() - new Date(d.last_full_backup).getTime()) > 7*86400000);
+    if (never.length > 0) warning.push(`${never.length} DB(s) never backed up`);
+    if (stale.length > 0) warning.push(`${stale.length} DB(s) not backed up in 7+ days`);
+  }
+
+  let level = 'healthy', label = 'Healthy';
+  if (critical.length > 0) { level = 'critical'; label = 'Critical'; }
+  else if (warning.length > 0) { level = 'warning'; label = 'Warning'; }
+  return { level, label, critical, warning };
+}
+
+function renderHealth(DATA){
+  const h = computeHealth(DATA);
+  const sem = el('semaphore');
+  sem.classList.remove('healthy','warning','critical');
+  sem.classList.add(h.level);
+  el('health-label').textContent = h.label;
+  const parts = [];
+  if (h.critical.length > 0) parts.push(`<h4 class="crit">Critical (${h.critical.length})</h4><ul>${h.critical.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`);
+  if (h.warning.length > 0) parts.push(`<h4 class="warn">Warnings (${h.warning.length})</h4><ul>${h.warning.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`);
+  if (parts.length === 0) parts.push(`<h4 class="ok">All clear</h4><div class="none">No performance issues detected.</div>`);
+  el('health-popover').innerHTML = parts.join('');
+}
+
+// Semaphore click-to-open popover (dismiss on outside click)
+document.addEventListener('click', (e) => {
+  const sem = document.getElementById('semaphore');
+  if (!sem) return;
+  const pop = document.getElementById('health-popover');
+  if (sem.contains(e.target) && !pop.contains(e.target)) {
+    sem.classList.toggle('open');
+  } else if (!sem.contains(e.target)) {
+    sem.classList.remove('open');
+  }
+});
+
+function render(DATA, PREV){
+  try {
+    renderHealth(DATA);
+    const i = DATA.instance || {};
+    const p = PREV ? PREV.instance : null;
+    const cur = servers.find(s=>s.id===activeServerId);
+    const engine = DATA.engine;
+    const isAzureDb = engine === 'azure-sqldb';
+    const isAzureMi = engine === 'azure-mi';
+    const engineBadge = isAzureDb
+      ? '<span class="engine-badge">Azure SQL DB</span>'
+      : isAzureMi
+      ? '<span class="engine-badge">Azure SQL MI</span>'
+      : '';
+    // For back-compat with the old `isAzure` boolean below (Azure SQL DB constraints)
+    const isAzure = isAzureDb;
+    el('current-server-title').innerHTML = esc(cur?.name || 'SQL Server') + engineBadge;
+    el('current-server-sub').textContent = isAzureDb
+      ? `${cur?.server||''} · db: ${cur?.database||'?'} · ${i.edition||''} v${i.product_version||''} · collected in ${DATA.collect_ms||'?'}ms`
+      : `${i.server_name||cur?.server||''} · ${i.edition||''} · v${i.product_version||''} ${i.product_level||''}${i.uptime_min!=null?' · up '+(i.uptime_min/60).toFixed(1)+'h':''} · collected in ${DATA.collect_ms||'?'}ms`;
+
+    // Toggle "unsupported" gray-out based on engine
+    el('buffer-card').classList.toggle('disabled', DATA.buffer_pool === null);
+    el('tempdb-card').classList.toggle('disabled', DATA.tempdb === null);
+
+    let kpis;
+    if (isAzure) {
+      kpis = [
+        {label:"Avg CPU %", value:(i.avg_cpu_percent??0).toFixed(1)+"%", hint:"Last resource-stats sample", cls:(i.avg_cpu_percent||0)>=80?"crit":(i.avg_cpu_percent||0)>=60?"warn":"good", d:delta(i.avg_cpu_percent, p?.avg_cpu_percent)},
+        {label:"Avg Memory %", value:(i.avg_memory_percent??0).toFixed(1)+"%", hint:"Database resource pool", cls:(i.avg_memory_percent||0)>=90?"warn":"good", d:delta(i.avg_memory_percent, p?.avg_memory_percent)},
+        {label:"Data I/O %", value:(i.avg_data_io_percent??0).toFixed(1)+"%", hint:"Read+write vs. limit", cls:(i.avg_data_io_percent||0)>=80?"warn":"good", d:delta(i.avg_data_io_percent, p?.avg_data_io_percent)},
+        {label:"Log Write %", value:(i.avg_log_write_percent??0).toFixed(1)+"%", hint:"Log throughput vs. limit", cls:(i.avg_log_write_percent||0)>=80?"warn":"good", d:delta(i.avg_log_write_percent, p?.avg_log_write_percent)},
+        {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"good", badge:(i.blocked_requests||0)>0?"BLOCKED":"OK", d:delta(i.user_sessions, p?.user_sessions)},
+        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":((i.active_requests||0)>10?"warn":""), d:delta(i.active_requests, p?.active_requests)},
+        {label:"Engine Edition", value:i.engine_edition===5?'Azure SQL':i.engine_edition===8?'Managed Inst':(i.engine_edition||'?'), hint:i.edition||''},
+        {label:"Product Version", value:i.product_version||'?', hint:"SQL Server engine build"},
+      ];
+    } else {
+      const pleGood = (i.page_life_expectancy||0) >= 300;
+      const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
+      const pBhr = p && p.buffer_cache_hit_ratio_base>0 ? (p.buffer_cache_hit_ratio*100/p.buffer_cache_hit_ratio_base) : null;
+      kpis = [
+        {label:"Page Life Expectancy", value:fmtInt(i.page_life_expectancy||0)+"s", hint:pleGood?"Healthy (≥300s)":"Below 300s target", cls:pleGood?"good":"warn", badge:pleGood?"OK":"LOW", d:delta(i.page_life_expectancy, p?.page_life_expectancy, true)},
+        {label:"Buffer Cache Hit Ratio", value:bhr.toFixed(2)+"%", hint:"Target >98%", cls:bhr>=98?"good":"warn", badge:bhr>=98?"OK":"LOW", d:delta(bhr.toFixed(2), pBhr!=null?pBhr.toFixed(2):null, true)},
+        {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"good", badge:(i.blocked_requests||0)>0?"BLOCKED":"OK", d:delta(i.user_sessions, p?.user_sessions)},
+        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":((i.active_requests||0)>10?"warn":""), d:delta(i.active_requests, p?.active_requests)},
+        {label:"Memory In Use", value:((i.memory_in_use_mb||0)/1024).toFixed(2)+" GB", hint:`Target ${((i.target_memory_mb||0)/1024).toFixed(1)} GB / Host ${((i.physical_memory_mb||0)/1024).toFixed(1)} GB`, d:delta(i.memory_in_use_mb, p?.memory_in_use_mb)},
+        {label:"Batch Requests (cum)", value:fmtInt(i.batch_requests_per_sec_cum||0), hint:`Compilations: ${fmtInt(i.compilations_cum||0)}`, d:delta(i.batch_requests_per_sec_cum, p?.batch_requests_per_sec_cum)},
+        {label:"CPU Cores", value:i.cpu_count||'?', hint:"Logical schedulers"},
+        {label:"Uptime", value:i.uptime_min!=null?(i.uptime_min/60).toFixed(1)+"h":'?', hint:`Started ${fmtDate(i.sqlserver_start_time)}`},
+      ];
+    }
+    el('kpis').innerHTML = kpis.map(k=>`
+      <div class="kpi ${k.cls||''}">
+        ${k.d && k.d.txt ? `<div class="delta ${k.d.cls}">${k.d.txt}</div>` : (k.badge?`<div class="badge ${k.cls||''}">${k.badge}</div>`:'')}
+        <div class="label">${k.label}</div>
+        <div class="value">${k.value}</div>
+        <div class="hint">${k.hint||''}</div>
+      </div>`).join('');
+
+    // Narrative
+    const findings = [];
+    if((i.blocked_requests||0)>0) findings.push(`<b>${i.blocked_requests} blocked session${i.blocked_requests>1?'s':''}</b> — investigate the head blocker`);
+    if(!isAzure){
+      const pleGood = (i.page_life_expectancy||0) >= 300;
+      const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
+      if(!pleGood && (i.page_life_expectancy!=null)) findings.push(`Page Life Expectancy is <b>${i.page_life_expectancy}s</b> (target 300s+) — memory pressure`);
+      if(bhr<98) findings.push(`Buffer cache hit ratio <b>${bhr.toFixed(1)}%</b> is below 98% target`);
+    } else {
+      if((i.avg_cpu_percent||0) >= 80) findings.push(`Avg CPU <b>${(i.avg_cpu_percent).toFixed(1)}%</b> is high`);
+      if((i.avg_data_io_percent||0) >= 80) findings.push(`Data I/O <b>${(i.avg_data_io_percent).toFixed(1)}%</b> is high`);
+      if((i.avg_log_write_percent||0) >= 80) findings.push(`Log Write <b>${(i.avg_log_write_percent).toFixed(1)}%</b> is high`);
+    }
+    const topWait = (DATA.waits||[])[0];
+    if(topWait) findings.push(`Dominant wait: <b>${esc(topWait.wait_type)}</b> — ${((topWait.wait_time_s||0)/60).toFixed(1)} min accumulated`);
+    const neverBackedUp = (DATA.databases||[]).filter(d=>!['tempdb','model'].includes(d.name) && !d.last_full_backup);
+    if(neverBackedUp.length>0) findings.push(`<b>${neverBackedUp.length} DB(s) never backed up</b>: ${neverBackedUp.map(d=>esc(d.name)).join(', ')}`);
+    if((DATA.missing_indexes||[]).length>0) findings.push(`<b>${DATA.missing_indexes.length} missing index suggestion(s)</b> — top score ${fmtInt(DATA.missing_indexes[0].improvement_score)}`);
+    if(findings.length===0) findings.push("No pressing issues detected. Instance looks healthy.");
+    el('narrative').innerHTML = "<b>Health summary:</b> " + findings.join(" • ");
+
+    // Waits
+    const waits = DATA.waits||[];
+    const maxWait = Math.max(1, ...waits.map(w=>Number(w.wait_time_s)||0));
+    el('waits').innerHTML = waits.map(w=>{
+      const wt_s = Number(w.wait_time_s)||0;
+      const pct = (wt_s/maxWait*100);
+      const critical = ["PAGEIOLATCH_SH","PAGEIOLATCH_EX","WRITELOG","LCK_M_","RESOURCE_SEMAPHORE","CXPACKET","ASYNC_NETWORK_IO"];
+      const wtype = String(w.wait_type||'');
+      let cls = "";
+      if(critical.some(c=>wtype.includes(c))) cls = "crit";
+      else if(wtype.startsWith("LCK") || wtype.includes("LATCH")) cls = "warn";
+      const wtDisplay = wt_s>=60 ? (wt_s/60).toFixed(1)+"m" : wt_s.toFixed(1)+"s";
+      return `<div class="bar-row" title="${w.tasks||0} tasks, avg ${w.avg_wait_ms||0}ms"><div class="name">${esc(wtype)}</div><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div><div class="val">${wtDisplay}</div></div>`;
+    }).join('') || '<div class="empty">No wait stats.</div>';
+
+    // Buffer donut (may be null on Azure — card grayed above)
+    if (DATA.buffer_pool === null) {
+      el('buffer-donut').innerHTML = '';
+    } else {
+      const colors = ["#b11f4b","#0078d4","#16a34a","#f59e0b","#8b5cf6","#06b6d4","#ec4899","#84cc16","#f97316"];
+      const bp = DATA.buffer_pool||[];
+      const total = bp.reduce((s,b)=>s+Number(b.buffer_mb||0),0);
+      if(bp.length===0 || total===0){
+        el('buffer-donut').innerHTML = '<div class="empty">No buffer pool data.</div>';
+      } else {
+        let angle = -90;
+        const arcs = bp.map((b,idx)=>{
+          const pct = Number(b.buffer_mb)/total;
+          const sweep = pct*360;
+          const rad = (deg)=>deg*Math.PI/180;
+          const x1 = 90 + 70*Math.cos(rad(angle)), y1 = 90 + 70*Math.sin(rad(angle));
+          const x2 = 90 + 70*Math.cos(rad(angle+sweep)), y2 = 90 + 70*Math.sin(rad(angle+sweep));
+          const large = sweep>180?1:0;
+          const path = pct>=0.9999 ? `M 90 20 A 70 70 0 1 1 89.99 20 Z` : `M 90 90 L ${x1} ${y1} A 70 70 0 ${large} 1 ${x2} ${y2} Z`;
+          angle += sweep;
+          return {path,color:colors[idx%colors.length],name:b.db_name,mb:b.buffer_mb,pct:(pct*100).toFixed(1)};
+        });
+        el('buffer-donut').innerHTML = `
+          <svg class="donut-svg" viewBox="0 0 180 180">
+            ${arcs.map(a=>`<path d="${a.path}" fill="${a.color}" stroke="var(--cp-surface)" stroke-width="1.5"/>`).join('')}
+            <circle cx="90" cy="90" r="38" fill="var(--cp-surface)"/>
+            <text x="90" y="86" text-anchor="middle" font-size="11" fill="var(--cp-text-muted)" font-family="Segoe UI">Total</text>
+            <text x="90" y="102" text-anchor="middle" font-size="16" font-weight="600" fill="var(--cp-text)" font-family="Segoe UI">${fmtInt(total)} MB</text>
+          </svg>
+          <div class="donut-legend">
+            ${arcs.map(a=>`<div class="item"><div class="sw" style="background:${a.color}"></div><div class="lbl">${esc(a.name)}</div><div class="v">${fmtInt(a.mb)} MB (${a.pct}%)</div></div>`).join('')}
+          </div>`;
+      }
+    }
+
+    const tq = DATA.top_queries||[];
+    el('top-queries').innerHTML = tq.map(q=>`
+      <tr class="clickable" data-qtype="query" data-db="${esc(q.db_name)}" data-qid="${esc(q.query_id)}">
+        <td><span class="pill muted">${esc(q.db_name)}</span></td>
+        <td class="mono">${esc(q.query_id)}</td>
+        <td class="num">${fmtInt(q.execs)}</td>
+        <td class="num"><b>${fmtN(q.total_cpu_ms)}</b></td>
+        <td class="num">${fmtN(q.avg_cpu_ms)}</td>
+        <td class="num">${fmtN(q.avg_dur_ms)}</td>
+        <td class="num">${fmtInt(q.avg_reads)}</td>
+        <td class="mono" style="white-space:nowrap;">${ago(q.last_exec)}</td>
+        <td><div class="query-text" title="${esc(q.query_text||'')}">${esc(q.query_text||'')}</div></td>
+      </tr>`).join('') || '<tr><td colspan="9" class="empty">No queries captured yet.</td></tr>';
+    el('top-queries').querySelectorAll('tr.clickable').forEach(tr=>{
+      tr.addEventListener('click', ()=>openQueryDetail(tr.dataset.db, tr.dataset.qid));
+    });
+
+    const heat = (ms)=>{
+      if(ms==null) return "";
+      if(ms<10) return "background:rgba(22,163,74,0.15);color:var(--cp-success);";
+      if(ms<20) return "background:rgba(245,158,11,0.18);color:var(--cp-warning);";
+      return "background:rgba(220,38,38,0.18);color:var(--cp-danger);";
+    };
+    el('file-io').innerHTML = (DATA.file_io||[]).map(f=>`
+      <tr>
+        <td>${esc(f.db_name)}</td>
+        <td class="mono">${esc(f.logical_name)}</td>
+        <td><span class="pill muted">${esc(f.file_type)}</span></td>
+        <td class="num">${fmtN(f.size_mb)}</td>
+        <td class="num"><span class="heat-cell" style="${heat(f.avg_read_latency_ms)}">${f.avg_read_latency_ms==null?'-':f.avg_read_latency_ms}</span></td>
+        <td class="num"><span class="heat-cell" style="${heat(f.avg_write_latency_ms)}">${f.avg_write_latency_ms==null?'-':f.avg_write_latency_ms}</span></td>
+      </tr>`).join('') || '<tr><td colspan="6" class="empty">No file I/O data.</td></tr>';
+
+    el('databases').innerHTML = (DATA.databases||[]).map(d=>{
+      const backupPill = !d.last_full_backup
+        ? '<span class="pill crit">never</span>'
+        : ((Date.now()-new Date(d.last_full_backup).getTime())/86400000 > 7
+            ? `<span class="pill warn">${ago(d.last_full_backup)}</span>`
+            : `<span class="pill ok">${ago(d.last_full_backup)}</span>`);
+      return `<tr>
+        <td><b>${esc(d.name)}</b></td>
+        <td><span class="dbstate-${esc(d.state)}">${esc(d.state)}</span></td>
+        <td class="mono">${esc(d.recovery)}</td>
+        <td class="num">${fmtN(d.data_mb)}</td>
+        <td class="num">${fmtN(d.log_mb)}</td>
+        <td>${['tempdb','model','master','msdb'].includes(d.name)?'<span class="pill muted">system</span>':backupPill}</td>
+        <td>${d.qs_on?'<span class="pill ok">on</span>':'<span class="pill muted">off</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    const mi = DATA.missing_indexes||[];
+    if(mi.length===0){
+      el('missing-idx').innerHTML = '<div class="empty">✓ No missing-index suggestions from the optimizer at this time.</div>';
+    } else {
+      el('missing-idx').innerHTML = `<div class="scroll"><table>
+        <thead><tr><th>DB / Table</th><th class="num">Impact</th><th class="num">Score</th><th>Columns</th></tr></thead>
+        <tbody>${mi.map((m,idx)=>`<tr class="clickable" data-qtype="index" data-idx="${idx}">
+          <td><b>${esc(m.db_name)}</b>.${esc(m.schema_name)}.${esc(m.table_name)}</td>
+          <td class="num">${fmtInt(m.user_impact_count)}</td>
+          <td class="num"><span class="pill">${fmtInt(m.improvement_score)}</span></td>
+          <td class="mono" style="font-size:11px;">${esc([m.eq_cols,m.ineq_cols].filter(Boolean).join(', '))}${m.included_cols?' <span style="color:var(--cp-text-soft)">INCLUDE ('+esc(m.included_cols)+')</span>':''}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+      el('missing-idx').querySelectorAll('tr.clickable').forEach(tr=>{
+        tr.addEventListener('click', ()=>openIndexDetail(mi[Number(tr.dataset.idx)]));
+      });
+    }
+
+    if (DATA.tempdb === null) {
+      el('tempdb').innerHTML = '';
+    } else {
+      const t = DATA.tempdb||{};
+      const tt = (t.user_obj_mb||0)+(t.internal_obj_mb||0)+(t.version_store_mb||0)+(t.free_mb||0) || 1;
+      el('tempdb').innerHTML = `
+      <div class="split">
+        <div class="mini-kpi"><div class="l">User Objects</div><div class="v">${fmtInt(t.user_obj_mb||0)} MB</div></div>
+        <div class="mini-kpi"><div class="l">Internal Objects</div><div class="v">${fmtInt(t.internal_obj_mb||0)} MB</div></div>
+        <div class="mini-kpi"><div class="l">Version Store</div><div class="v">${fmtInt(t.version_store_mb||0)} MB</div></div>
+        <div class="mini-kpi"><div class="l">Free</div><div class="v">${fmtInt(t.free_mb||0)} MB</div></div>
+      </div>
+      <div style="margin-top:14px;font-size:11px;color:var(--cp-text-muted);text-align:center;">Total allocated: ${fmtInt(tt)} MB</div>
+      <div style="margin-top:8px;display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--cp-surface-soft);">
+        <div style="width:${(t.user_obj_mb||0)/tt*100}%;background:var(--cp-accent);" title="User"></div>
+        <div style="width:${(t.internal_obj_mb||0)/tt*100}%;background:var(--cp-warning);" title="Internal"></div>
+        <div style="width:${(t.version_store_mb||0)/tt*100}%;background:#8b5cf6;" title="Version store"></div>
+        <div style="width:${(t.free_mb||0)/tt*100}%;background:var(--cp-success);" title="Free"></div>
+      </div>`;
+    }
+
+    const ac = DATA.active||[];
+    if(ac.length===0){
+      el('active').innerHTML = '<div class="empty">No active user requests at snapshot time.</div>';
+    } else {
+      el('active').innerHTML = `<table>
+        <thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Program</th><th>DB</th><th>Cmd</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Query</th></tr></thead>
+        <tbody>${ac.map(a=>`<tr>
+          <td class="mono">${esc(a.session_id)}</td>
+          <td>${esc(a.login_name)}</td>
+          <td class="mono">${esc(a.host_name)}</td>
+          <td class="mono">${esc(a.program_name)}</td>
+          <td>${esc(a.db_name)}</td>
+          <td><span class="pill muted">${esc(a.command)}</span></td>
+          <td class="mono">${esc(a.wait_type)}</td>
+          <td class="num">${fmtInt(a.wait_ms)}</td>
+          <td>${a.blocked_by?`<span class="pill crit">${a.blocked_by}</span>`:'-'}</td>
+          <td><div class="query-text" title="${esc(a.query_text||'')}">${esc(a.query_text||'')}</div></td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+  } catch(e){
+    console.error('Render error:', e);
+    el('err').textContent = `Render error: ${e.message}`;
+    el('err').classList.add('show');
+  }
+}
+
+// ============ Detail modal ============
+el('detail-close').addEventListener('click', closeDetail);
+el('detail-backdrop').addEventListener('click', (e)=>{ if(e.target.id==='detail-backdrop') closeDetail(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closeDetail(); closeModal(); } });
+
+function closeDetail(){ el('detail-backdrop').classList.remove('show'); }
+function openDetail(title, sub, bodyHtml){
+  el('detail-title').textContent = title;
+  el('detail-sub').innerHTML = sub;
+  el('detail-body').innerHTML = bodyHtml;
+  el('detail-backdrop').classList.add('show');
+  // Wire copy buttons
+  el('detail-body').querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const targetId = btn.dataset.copy;
+      const text = document.getElementById(targetId).innerText;
+      try { await navigator.clipboard.writeText(text); btn.textContent='Copied ✓'; btn.classList.add('copied'); setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},1500); }
+      catch { btn.textContent='Failed'; }
+    });
+  });
+  // Wire tabs
+  el('detail-body').querySelectorAll('.detail-tab').forEach(t=>{
+    t.addEventListener('click', ()=>{
+      el('detail-body').querySelectorAll('.detail-tab').forEach(x=>x.classList.remove('active'));
+      el('detail-body').querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      document.getElementById('tab-'+t.dataset.tab).classList.add('active');
+    });
+  });
+}
+
+async function openQueryDetail(db, qid){
+  openDetail(`Query ${qid} · ${db}`, `Loading full text and execution plan from Query Store…`, `<div class="skeleton" style="height:200px"></div>`);
+  try {
+    const r = await fetch(`/api/query-detail?serverId=${encodeURIComponent(activeServerId)}&db=${encodeURIComponent(db)}&queryId=${encodeURIComponent(qid)}`);
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.error||'Failed');
+    const plans = data.plans||[];
+    if(plans.length===0){ openDetail(`Query ${qid} · ${db}`, '', '<div class="empty">No plan found.</div>'); return; }
+    // If multiple plans, show all
+    const p0 = plans[0];
+    const planCount = plans.length;
+    const sub = `${planCount} plan${planCount>1?'s':''} • latest last executed ${ago(p0.last_execution_time)} • ${fmtInt(p0.count_executions)} recent execs`;
+    const meta = `
+      <div class="detail-meta">
+        <div class="mini-kpi"><div class="l">Avg CPU</div><div class="v">${(p0.avg_cpu_time/1000).toFixed(1)} ms</div></div>
+        <div class="mini-kpi"><div class="l">Avg Duration</div><div class="v">${(p0.avg_duration/1000).toFixed(1)} ms</div></div>
+        <div class="mini-kpi"><div class="l">Logical Reads</div><div class="v">${fmtInt(Math.round(p0.avg_logical_io_reads))}</div></div>
+        <div class="mini-kpi"><div class="l">Physical Reads</div><div class="v">${fmtInt(Math.round(p0.avg_physical_io_reads))}</div></div>
+        <div class="mini-kpi"><div class="l">Avg Rows</div><div class="v">${fmtInt(Math.round(p0.avg_rowcount))}</div></div>
+        <div class="mini-kpi"><div class="l">Avg DOP</div><div class="v">${p0.avg_dop}</div></div>
+        <div class="mini-kpi"><div class="l">Max Memory (KB)</div><div class="v">${fmtInt(p0.avg_query_max_used_memory)}</div></div>
+        <div class="mini-kpi"><div class="l">Plan ID</div><div class="v">${p0.plan_id}${p0.is_forced_plan?' <span class="pill warn" style="font-size:9px;">FORCED</span>':''}</div></div>
+      </div>`;
+    const queryText = p0.query_sql_text || '';
+    const planXml = p0.query_plan || '';
+    const planUrl = 'https://www.brentozar.com/pastetheplan/';
+    const body = `
+      ${meta}
+      <div class="detail-tabs">
+        <button class="detail-tab active" data-tab="sql">SQL Text</button>
+        <button class="detail-tab" data-tab="plan">Execution Plan (XML)</button>
+        <button class="detail-tab" data-tab="ssms">Open in SSMS / PasteThePlan</button>
+      </div>
+      <div id="tab-sql" class="tab-panel active">
+        <div class="copy-wrap">
+          <button class="copy-btn" data-copy="query-sql">Copy</button>
+          <pre class="code-block" id="query-sql">${esc(queryText)}</pre>
+        </div>
+      </div>
+      <div id="tab-plan" class="tab-panel">
+        <div class="copy-wrap">
+          <button class="copy-btn" data-copy="query-plan">Copy XML</button>
+          <pre class="code-block plan" id="query-plan">${esc(planXml).slice(0,60000)}${planXml.length>60000?'\n\n...(truncated, use Copy to get full XML)':''}</pre>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--cp-text-muted);">Paste this XML into SSMS: right-click a query window → Analyze Actual Execution Plan → or save as <code>.sqlplan</code>.</div>
+      </div>
+      <div id="tab-ssms" class="tab-panel">
+        <div style="font-size:13px;line-height:1.7;">
+          <p><b>Option 1 · SSMS:</b> copy the plan XML above, save to a file named <code>plan.sqlplan</code>, then double-click to open the visual plan viewer.</p>
+          <p><b>Option 2 · PasteThePlan:</b> go to <a href="${planUrl}" target="_blank" rel="noopener" style="color:var(--cp-link);">${planUrl}</a>, paste XML, get a shareable visual plan URL (Brent Ozar's free tool).</p>
+          <p><b>Option 3 · Azure Data Studio:</b> paste XML into a new file with extension <code>.sqlplan</code>.</p>
+          <p><b>Force this plan:</b> <code>EXEC [${db}].sys.sp_query_store_force_plan @query_id = ${qid}, @plan_id = ${p0.plan_id};</code></p>
+          <p><b>Unforce:</b> <code>EXEC [${db}].sys.sp_query_store_unforce_plan @query_id = ${qid}, @plan_id = ${p0.plan_id};</code></p>
+        </div>
+      </div>
+    `;
+    openDetail(`Query ${qid} · ${db}`, sub, body);
+  } catch(e){
+    openDetail(`Query ${qid} · ${db}`, '', `<div class="error-banner show">Fetch failed: ${esc(e.message)}</div>`);
+  }
+}
+
+function openIndexDetail(m){
+  const idxName = generateIndexName(m);
+  const eqCols = (m.eq_cols||'').replace(/[\[\]]/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+  const ineqCols = (m.ineq_cols||'').replace(/[\[\]]/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+  const keyCols = [...eqCols, ...ineqCols];
+  const inclCols = (m.included_cols||'').replace(/[\[\]]/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+  const keyList = keyCols.map(c=>`[${c}]`).join(', ');
+  const inclList = inclCols.map(c=>`[${c}]`).join(', ');
+  const ddl = `-- Missing index suggestion for [${m.db_name}].[${m.schema_name}].[${m.table_name}]
+-- Impact: seeks+scans = ${fmtInt(m.user_impact_count)}, improvement score = ${fmtInt(m.improvement_score)}
+-- ⚠ Always review before applying: verify columns are truly beneficial, consider existing indexes,
+--    and estimate write cost. Every index slows down INSERT/UPDATE/DELETE.
+
+USE [${m.db_name}];
+GO
+
+CREATE NONCLUSTERED INDEX [${idxName}]
+    ON [${m.schema_name}].[${m.table_name}] (${keyList})${inclList?'\n    INCLUDE ('+inclList+')':''}
+    WITH (ONLINE = ON, FILLFACTOR = 90, DATA_COMPRESSION = PAGE);
+GO
+
+-- To drop:
+-- DROP INDEX [${idxName}] ON [${m.schema_name}].[${m.table_name}];`;
+  const dropDdl = `USE [${m.db_name}];
+GO
+DROP INDEX [${idxName}] ON [${m.schema_name}].[${m.table_name}];
+GO`;
+  const usageCheck = `-- Check how the index is used after creation:
+USE [${m.db_name}];
+SELECT
+    OBJECT_NAME(s.object_id) AS table_name,
+    i.name AS index_name,
+    s.user_seeks, s.user_scans, s.user_lookups, s.user_updates,
+    s.last_user_seek, s.last_user_scan, s.last_user_update
+FROM sys.dm_db_index_usage_stats s
+JOIN sys.indexes i ON i.object_id = s.object_id AND i.index_id = s.index_id
+WHERE s.database_id = DB_ID() AND i.name = '${idxName}';`;
+  const meta = `
+    <div class="detail-meta">
+      <div class="mini-kpi"><div class="l">Database</div><div class="v" style="font-size:14px;">${esc(m.db_name)}</div></div>
+      <div class="mini-kpi"><div class="l">Table</div><div class="v" style="font-size:14px;">${esc(m.schema_name)}.${esc(m.table_name)}</div></div>
+      <div class="mini-kpi"><div class="l">Impact (seeks+scans)</div><div class="v">${fmtInt(m.user_impact_count)}</div></div>
+      <div class="mini-kpi"><div class="l">Improvement Score</div><div class="v">${fmtInt(m.improvement_score)}</div></div>
+      <div class="mini-kpi"><div class="l">Key Columns</div><div class="v" style="font-size:13px;">${keyCols.length}</div></div>
+      <div class="mini-kpi"><div class="l">Include Columns</div><div class="v" style="font-size:13px;">${inclCols.length}</div></div>
+    </div>`;
+  const body = `
+    ${meta}
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-tab="create">CREATE INDEX</button>
+      <button class="detail-tab" data-tab="drop">DROP</button>
+      <button class="detail-tab" data-tab="usage">Verify Usage</button>
+    </div>
+    <div id="tab-create" class="tab-panel active">
+      <div class="copy-wrap">
+        <button class="copy-btn" data-copy="idx-create">Copy</button>
+        <pre class="code-block" id="idx-create">${esc(ddl)}</pre>
+      </div>
+    </div>
+    <div id="tab-drop" class="tab-panel">
+      <div class="copy-wrap">
+        <button class="copy-btn" data-copy="idx-drop">Copy</button>
+        <pre class="code-block" id="idx-drop">${esc(dropDdl)}</pre>
+      </div>
+    </div>
+    <div id="tab-usage" class="tab-panel">
+      <div class="copy-wrap">
+        <button class="copy-btn" data-copy="idx-usage">Copy</button>
+        <pre class="code-block" id="idx-usage">${esc(usageCheck)}</pre>
+      </div>
+    </div>
+  `;
+  openDetail(`Missing Index · ${m.schema_name}.${m.table_name}`, `Auto-generated CREATE INDEX statement · review carefully before applying`, body);
+}
+
+function generateIndexName(m){
+  const eqCols = (m.eq_cols||'').replace(/[\[\]]/g,'').split(',').map(s=>s.trim()).filter(Boolean).slice(0,3);
+  const ineqCols = (m.ineq_cols||'').replace(/[\[\]]/g,'').split(',').map(s=>s.trim()).filter(Boolean).slice(0,2);
+  const parts = [...eqCols, ...ineqCols].join('_').replace(/[^A-Za-z0-9_]/g,'').slice(0,60);
+  // SQL Server identifier limit is 128; keep it comfortably short
+  return `IX_${m.table_name}_${parts}`.slice(0,120);
+}
+
+// Countdown tick — pauses when paused=true
+setInterval(()=>{
+  if(paused) return;
+  countdown--;
+  el('countdown').textContent = formatCountdown(Math.max(0,countdown));
+  const dashLen = 2 * Math.PI * 15;
+  const offset = dashLen * (1 - Math.max(0,countdown)/refreshSeconds);
+  el('ring-fg').setAttribute('stroke-dashoffset', offset);
+  if(countdown<=0){
+    countdown = refreshSeconds;
+    fetchMetrics();
+  }
+},1000);
+
+// Initial load
+(async function init(){
+  await loadServers();
+  if(servers.length>0){
+    setActiveServer(servers[0].id);
+  } else {
+    renderEmpty();
+    setStatus('paused','No servers');
+  }
+})();
+</script>
+</body>
+</html>
