@@ -16,8 +16,11 @@ if ($c) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
 # Remove autostart task
 schtasks /Delete /TN 'SqlDashboard-Autostart' /F 2>$null | Out-Null
 
-# Remove shortcuts
+# Remove shortcuts (new + legacy names)
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\SQL Dashboard" -Recurse -Force -ErrorAction SilentlyContinue
+$deskPath = [Environment]::GetFolderPath('Desktop')
+Remove-Item (Join-Path $deskPath 'SQL Performance Dashboard.lnk') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $deskPath 'SQL Dashboard.lnk') -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:USERPROFILE\Desktop\SQL Dashboard.lnk" -Force -ErrorAction SilentlyContinue
 Write-Host "  Removed shortcuts"
 

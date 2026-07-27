@@ -147,7 +147,7 @@ $existing = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction Sile
 if ($existing) {
     Write-Host "Dashboard already running"
 } else {
-    Start-Process node -ArgumentList "server.mjs" -WorkingDirectory $installDir -WindowStyle Hidden `
+    Start-Process node -ArgumentList "server5.mjs" -WorkingDirectory $installDir -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $installDir 'server.log') `
         -RedirectStandardError  (Join-Path $installDir 'server.err.log')
     Start-Sleep -Seconds 2
@@ -204,25 +204,30 @@ if (-not $NoShortcuts) {
     $ws = New-Object -ComObject WScript.Shell
     $target  = 'powershell.exe'
     $lnkArgs = "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$InstallDir\Start-Dashboard.ps1`""
-    $icon    = "$InstallDir\Start-Dashboard.ps1"
+    $icoPath = Join-Path $InstallDir 'sql-dashboard-logo.ico'
     # Start Menu
     $startMenuDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\SQL Dashboard"
     New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
-    $lnkPath = Join-Path $startMenuDir 'SQL Dashboard.lnk'
+    $lnkPath = Join-Path $startMenuDir 'SQL Performance Dashboard.lnk'
     $lnk = $ws.CreateShortcut($lnkPath)
     $lnk.TargetPath = $target
     $lnk.Arguments  = $lnkArgs
     $lnk.WorkingDirectory = $InstallDir
-    $lnk.Description = 'Open the SQL Server Performance Dashboard'
+    if (Test-Path $icoPath) { $lnk.IconLocation = "$icoPath,0" }
+    $lnk.Description = 'Open the SQL Performance Dashboard'
+    $lnk.WindowStyle = 7
     $lnk.Save()
     Write-OK "Start Menu: $lnkPath"
-    # Desktop
-    $desktopLnk = "$env:USERPROFILE\Desktop\SQL Dashboard.lnk"
+    # Desktop (honors OneDrive-redirected Desktop)
+    $desktopPath = [Environment]::GetFolderPath('Desktop')
+    $desktopLnk = Join-Path $desktopPath 'SQL Performance Dashboard.lnk'
     $lnk2 = $ws.CreateShortcut($desktopLnk)
     $lnk2.TargetPath = $target
     $lnk2.Arguments  = $lnkArgs
     $lnk2.WorkingDirectory = $InstallDir
-    $lnk2.Description = 'Open the SQL Server Performance Dashboard'
+    if (Test-Path $icoPath) { $lnk2.IconLocation = "$icoPath,0" }
+    $lnk2.Description = 'Open the SQL Performance Dashboard'
+    $lnk2.WindowStyle = 7
     $lnk2.Save()
     Write-OK "Desktop: $desktopLnk"
 }
@@ -269,4 +274,3 @@ Write-Host ("  3. Click Add server to register more instances")
 Write-Host ""
 Write-Host ("Uninstall: powershell " + (Join-Path $scriptDir 'uninstall.ps1')) -ForegroundColor DarkGray
 Write-Host ""
-
