@@ -727,57 +727,121 @@ function computeHealth(DATA){
   const isAzureDb = DATA.engine === 'azure-sqldb';
   const critical = [], warning = [];
 
+  // === UNIVERSAL ===
+  // Blocking is always critical (RPO/RTO impact, users waiting)
   if ((i.blocked_requests||0) > 0) critical.push(`${i.blocked_requests} blocked session(s)`);
 
+  // Wait-based scoring: what percentage of waits are the "dangerous" ones?
+  // Follows Paul Randal / Microsoft Learn methodology
+  const waits = DATA.waits || [];
+  const totalWaitS = waits.reduce((s,w)=>s + (Number(w.wait_time_s)||0), 0);
+  const totalSignalS = waits.reduce((s,w)=>s + (Number(w.signal_wait_s)||0), 0);
+
+  if (totalWaitS > 0) {
+    // Signal-wait percentage — proxy for CPU pressure (MS Learn threshold: >25% = pressure)
+    const signalPct = (totalSignalS / totalWaitS) * 100;
+    if (signalPct >= 25) critical.push(`Signal wait ${signalPct.toFixed(1)}% (CPU pressure ≥25%)`);
+    else if (signalPct >= 20) warning.push(`Signal wait ${signalPct.toFixed(1)}% (approaching CPU pressure)`);
+
+    // Categorize top waits and check their dominance vs total
+    const catSum = (patterns) => waits
+      .filter(w => patterns.some(p => String(w.wait_type||'').includes(p)))
+      .reduce((s,w)=>s + (Number(w.wait_time_s)||0), 0);
+
+    const ioPct   = catSum(['PAGEIOLATCH_SH','PAGEIOLATCH_EX','PAGEIOLATCH_UP','IO_COMPLETION']) / totalWaitS * 100;
+    const logPct  = catSum(['WRITELOG','LOGBUFFER']) / totalWaitS * 100;
+    const memPct  = catSum(['RESOURCE_SEMAPHORE','CMEMTHREAD','SOS_RESERVEDMEMBLOCKLIST']) / totalWaitS * 100;
+    const parPct  = catSum(['CXPACKET','CXCONSUMER']) / totalWaitS * 100;
+    const lockPct = catSum(['LCK_M_']) / totalWaitS * 100;
+    const netPct  = catSum(['ASYNC_NETWORK_IO']) / totalWaitS * 100;
+
+    if (ioPct   >= 30) critical.push(`Disk I/O waits ${ioPct.toFixed(0)}% (storage bottleneck)`);
+    else if (ioPct   >= 15) warning.push(`Disk I/O waits ${ioPct.toFixed(0)}%`);
+    if (logPct  >= 20) critical.push(`WRITELOG waits ${logPct.toFixed(0)}% (log disk bottleneck)`);
+    else if (logPct  >= 10) warning.push(`WRITELOG waits ${logPct.toFixed(0)}%`);
+    if (memPct  >= 15) critical.push(`Memory-grant waits ${memPct.toFixed(0)}% (memory pressure)`);
+    else if (memPct  >= 5)  warning.push(`Memory-grant waits ${memPct.toFixed(0)}%`);
+    if (parPct  >= 30) warning.push(`Parallelism waits ${parPct.toFixed(0)}% (review MAXDOP / cost threshold)`);
+    if (lockPct >= 20) critical.push(`Lock waits ${lockPct.toFixed(0)}% (blocking hotspot)`);
+    else if (lockPct >= 10) warning.push(`Lock waits ${lockPct.toFixed(0)}%`);
+    if (netPct  >= 20) warning.push(`ASYNC_NETWORK_IO ${netPct.toFixed(0)}% (slow client/network)`);
+  }
+
+  // === MEMORY ===
   if (isAzureDb) {
-    const cpu = i.avg_cpu_percent||0, mem = i.avg_memory_percent||0;
-    const dio = i.avg_data_io_percent||0, lio = i.avg_log_write_percent||0;
-    if (cpu >= 90) critical.push(`CPU ${cpu.toFixed(0)}% (≥90%)`);
-    else if (cpu >= 70) warning.push(`CPU ${cpu.toFixed(0)}% elevated`);
-    if (dio >= 90) critical.push(`Data I/O ${dio.toFixed(0)}% (throttling)`);
-    else if (dio >= 70) warning.push(`Data I/O ${dio.toFixed(0)}%`);
-    if (lio >= 90) critical.push(`Log Write ${lio.toFixed(0)}% (throttling)`);
-    else if (lio >= 70) warning.push(`Log Write ${lio.toFixed(0)}%`);
-    if (mem >= 95) warning.push(`Memory ${mem.toFixed(0)}%`);
+    const mem = i.avg_memory_percent||0;
+    if (mem >= 95) critical.push(`DTU memory ${mem.toFixed(0)}% (near limit)`);
+    else if (mem >= 85) warning.push(`DTU memory ${mem.toFixed(0)}%`);
   } else {
     const ple = i.page_life_expectancy;
+    const targetMb = i.target_memory_mb || 0;
+    // Scale PLE threshold to target buffer pool: 300s per 4GB (Jonathan Kehayias formula)
+    const pleFloor = Math.max(300, Math.floor(targetMb / 4096) * 300);
     if (ple != null) {
-      if (ple < 60) critical.push(`Page Life Expectancy ${ple}s (<60s)`);
-      else if (ple < 300) warning.push(`Page Life Expectancy ${ple}s (<300s)`);
+      if (ple < pleFloor / 5) critical.push(`Page Life Expectancy ${ple}s (severe memory pressure)`);
+      else if (ple < pleFloor) warning.push(`Page Life Expectancy ${ple}s (target ≥${pleFloor}s)`);
     }
     const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
-    if (bhr < 90) critical.push(`Buffer cache hit ratio ${bhr.toFixed(1)}%`);
-    else if (bhr < 98) warning.push(`Buffer cache hit ratio ${bhr.toFixed(1)}%`);
+    if (bhr < 90) critical.push(`Buffer cache hit ratio ${bhr.toFixed(1)}% (poor)`);
+    else if (bhr < 97) warning.push(`Buffer cache hit ratio ${bhr.toFixed(1)}% (below target ≥97%)`);
   }
 
-  const active = i.active_requests || 0;
-  if (active >= 100) critical.push(`${active} active requests`);
-  else if (active >= 30) warning.push(`${active} active requests`);
+  // === CPU / IO for Azure SQL DB (resource-relative) ===
+  if (isAzureDb) {
+    const cpu = i.avg_cpu_percent||0;
+    const dio = i.avg_data_io_percent||0;
+    const lio = i.avg_log_write_percent||0;
+    if (cpu >= 90) critical.push(`DTU CPU ${cpu.toFixed(0)}% (throttling likely)`);
+    else if (cpu >= 75) warning.push(`DTU CPU ${cpu.toFixed(0)}% (sustained high)`);
+    if (dio >= 90) critical.push(`Data I/O ${dio.toFixed(0)}% (throttling)`);
+    else if (dio >= 75) warning.push(`Data I/O ${dio.toFixed(0)}%`);
+    if (lio >= 90) critical.push(`Log Write ${lio.toFixed(0)}% (throttling)`);
+    else if (lio >= 75) warning.push(`Log Write ${lio.toFixed(0)}%`);
+  }
 
+  // === FILE I/O LATENCY ===
+  // MS/Paul Randal thresholds: <10ms good, 10-20ms warning, >20ms bad
   const io = DATA.file_io || [];
-  const badIo = io.filter(f => (f.avg_read_latency_ms||0) > 20 || (f.avg_write_latency_ms||0) > 20);
-  const midIo = io.filter(f => (f.avg_read_latency_ms||0) > 10 || (f.avg_write_latency_ms||0) > 10);
-  if (badIo.length >= 2) critical.push(`${badIo.length} files with I/O >20ms`);
-  else if (badIo.length === 1) warning.push(`1 file with I/O >20ms`);
-  else if (midIo.length >= 3) warning.push(`${midIo.length} files with I/O 10–20ms`);
+  const dataFiles = io.filter(f => f.file_type === 'ROWS');
+  const logFiles  = io.filter(f => f.file_type === 'LOG');
+  const badData = dataFiles.filter(f => (f.avg_read_latency_ms||0) > 20 || (f.avg_write_latency_ms||0) > 20);
+  const badLog  = logFiles.filter(f => (f.avg_write_latency_ms||0) > 5);   // Log writes need <5ms
+  const midData = dataFiles.filter(f => !badData.includes(f) && ((f.avg_read_latency_ms||0) > 10 || (f.avg_write_latency_ms||0) > 10));
+  if (badData.length >= 2) critical.push(`${badData.length} data files with I/O >20ms`);
+  else if (badData.length === 1) warning.push(`1 data file with I/O >20ms`);
+  else if (midData.length >= 3) warning.push(`${midData.length} data files with I/O 10-20ms`);
+  if (badLog.length > 0) critical.push(`${badLog.length} log file(s) with write >5ms (log disk slow)`);
 
-  const badWaits = ['PAGEIOLATCH_SH','PAGEIOLATCH_EX','WRITELOG','RESOURCE_SEMAPHORE','ASYNC_NETWORK_IO'];
-  const topWait = (DATA.waits||[])[0];
-  if (topWait && badWaits.some(w => String(topWait.wait_type||'').includes(w))) {
-    warning.push(`Dominant wait: ${topWait.wait_type}`);
-  }
-
+  // === MISSING INDEXES ===
+  // Improvement score = avg_user_impact * avg_total_user_cost * user_seeks+user_scans
+  // >100,000 = clearly high impact; >500,000 = severe missed opportunity
   const mi = DATA.missing_indexes || [];
-  const highScore = mi.filter(m => (m.improvement_score||0) > 100000);
-  if (highScore.length > 0) warning.push(`${highScore.length} high-impact missing indexes`);
+  const severe = mi.filter(m => (m.improvement_score||0) > 500000);
+  const high   = mi.filter(m => (m.improvement_score||0) > 100000 && (m.improvement_score||0) <= 500000);
+  if (severe.length > 0) critical.push(`${severe.length} severe missing index(es) — top score ${(severe[0].improvement_score/1000).toFixed(0)}k`);
+  else if (high.length > 0) warning.push(`${high.length} high-impact missing index(es)`);
 
+  // === BACKUPS (on-prem only — Azure SQL DB has automatic backups) ===
   if (!isAzureDb) {
     const dbs = DATA.databases || [];
-    const never = dbs.filter(d => !['tempdb','model','master','msdb'].includes(d.name) && !d.last_full_backup);
-    const stale = dbs.filter(d => !['tempdb','model','master','msdb'].includes(d.name) && d.last_full_backup &&
-      (Date.now() - new Date(d.last_full_backup).getTime()) > 7*86400000);
-    if (never.length > 0) warning.push(`${never.length} DB(s) never backed up`);
-    if (stale.length > 0) warning.push(`${stale.length} DB(s) not backed up in 7+ days`);
+    const userDbs = dbs.filter(d => !['tempdb','model','master','msdb'].includes(d.name));
+    const never = userDbs.filter(d => !d.last_full_backup);
+    const stale7 = userDbs.filter(d => d.last_full_backup && (Date.now()-new Date(d.last_full_backup).getTime()) > 7*86400000);
+    const stale1 = userDbs.filter(d => d.last_full_backup && (Date.now()-new Date(d.last_full_backup).getTime()) > 86400000 && !stale7.includes(d));
+    if (never.length > 0) critical.push(`${never.length} DB(s) never backed up`);
+    if (stale7.length > 0) critical.push(`${stale7.length} DB(s) not backed up in >7 days`);
+    else if (stale1.length >= 3) warning.push(`${stale1.length} DB(s) last full backup >24h ago`);
+  }
+
+  // === TEMPDB (on-prem only) ===
+  const t = DATA.tempdb;
+  if (t && !isAzureDb) {
+    const tot = (t.user_obj_mb||0)+(t.internal_obj_mb||0)+(t.version_store_mb||0)+(t.free_mb||0);
+    if (tot > 0) {
+      const freePct = (t.free_mb||0)/tot*100;
+      if (freePct < 5) critical.push(`TempDB free space ${freePct.toFixed(0)}%`);
+      else if (freePct < 15) warning.push(`TempDB free space ${freePct.toFixed(0)}%`);
+    }
   }
 
   let level = 'healthy', label = 'Healthy';
