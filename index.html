@@ -775,10 +775,14 @@ function computeHealth(DATA){
   } else {
     const ple = i.page_life_expectancy;
     const targetMb = i.target_memory_mb || 0;
-    // Scale PLE threshold to target buffer pool: 300s per 4GB (Jonathan Kehayias formula)
-    const pleFloor = Math.max(300, Math.floor(targetMb / 4096) * 300);
+    // Kehayias formula: 300s per 4GB of buffer pool.
+    // But never below 300s (small servers) and never above 600s floor (dev/lab realism).
+    const pleFloor = Math.min(600, Math.max(300, Math.floor(targetMb / 4096) * 300));
     if (ple != null) {
-      if (ple < pleFloor / 5) critical.push(`Page Life Expectancy ${ple}s (severe memory pressure)`);
+      // Only mark critical if PLE is genuinely low (< 60s) AND the server has been up long enough
+      // for PLE to have stabilized (fresh restarts show low PLE for the first ~10 minutes).
+      const uptimeMin = i.uptime_min || 0;
+      if (uptimeMin >= 15 && ple < 60) critical.push(`Page Life Expectancy ${ple}s (severe memory pressure)`);
       else if (ple < pleFloor) warning.push(`Page Life Expectancy ${ple}s (target ≥${pleFloor}s)`);
     }
     const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
@@ -822,14 +826,24 @@ function computeHealth(DATA){
   else if (high.length > 0) warning.push(`${high.length} high-impact missing index(es)`);
 
   // === BACKUPS (on-prem only — Azure SQL DB has automatic backups) ===
+  // On lab/dev instances (short uptime, sample DBs), missing backups are normal.
+  // Only flag as critical if the instance has been up long enough that a backup
+  // policy would realistically have run.
   if (!isAzureDb) {
     const dbs = DATA.databases || [];
     const userDbs = dbs.filter(d => !['tempdb','model','master','msdb'].includes(d.name));
     const never = userDbs.filter(d => !d.last_full_backup);
     const stale7 = userDbs.filter(d => d.last_full_backup && (Date.now()-new Date(d.last_full_backup).getTime()) > 7*86400000);
     const stale1 = userDbs.filter(d => d.last_full_backup && (Date.now()-new Date(d.last_full_backup).getTime()) > 86400000 && !stale7.includes(d));
-    if (never.length > 0) critical.push(`${never.length} DB(s) never backed up`);
-    if (stale7.length > 0) critical.push(`${stale7.length} DB(s) not backed up in >7 days`);
+    // Instance uptime in hours — treat servers up < 48h as recently-restarted / lab
+    const uptimeH = (i.uptime_min||0)/60;
+    // Server has been up long enough that a backup should have happened
+    const backupsExpected = uptimeH >= 48;
+    if (never.length > 0) {
+      if (backupsExpected) critical.push(`${never.length} DB(s) never backed up (server up ${uptimeH.toFixed(0)}h)`);
+      else warning.push(`${never.length} DB(s) never backed up (lab/recent-restart — normal)`);
+    }
+    if (stale7.length > 0) warning.push(`${stale7.length} DB(s) not backed up in >7 days`);
     else if (stale1.length >= 3) warning.push(`${stale1.length} DB(s) last full backup >24h ago`);
   }
 
