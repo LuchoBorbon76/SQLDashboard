@@ -933,7 +933,7 @@ function render(DATA, PREV){
         {label:"Data I/O %", value:(i.avg_data_io_percent??0).toFixed(1)+"%", hint:"Read+write vs. limit", cls:(i.avg_data_io_percent||0)>=80?"warn":"good", d:delta(i.avg_data_io_percent, p?.avg_data_io_percent)},
         {label:"Log Write %", value:(i.avg_log_write_percent??0).toFixed(1)+"%", hint:"Log throughput vs. limit", cls:(i.avg_log_write_percent||0)>=80?"warn":"good", d:delta(i.avg_log_write_percent, p?.avg_log_write_percent)},
         {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"good", badge:(i.blocked_requests||0)>0?"BLOCKED":"OK", d:delta(i.user_sessions, p?.user_sessions)},
-        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":((i.active_requests||0)>10?"warn":""), d:delta(i.active_requests, p?.active_requests)},
+        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests)},
         {label:"Engine Edition", value:i.engine_edition===5?'Azure SQL':i.engine_edition===8?'Managed Inst':(i.engine_edition||'?'), hint:i.edition||''},
         {label:"Product Version", value:i.product_version||'?', hint:"SQL Server engine build"},
       ];
@@ -945,9 +945,9 @@ function render(DATA, PREV){
         {label:"Page Life Expectancy", value:fmtInt(i.page_life_expectancy||0)+"s", hint:pleGood?"Healthy (≥300s)":"Below 300s target", cls:pleGood?"good":"warn", badge:pleGood?"OK":"LOW", d:delta(i.page_life_expectancy, p?.page_life_expectancy, true)},
         {label:"Buffer Cache Hit Ratio", value:bhr.toFixed(2)+"%", hint:"Target >98%", cls:bhr>=98?"good":"warn", badge:bhr>=98?"OK":"LOW", d:delta(bhr.toFixed(2), pBhr!=null?pBhr.toFixed(2):null, true)},
         {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"good", badge:(i.blocked_requests||0)>0?"BLOCKED":"OK", d:delta(i.user_sessions, p?.user_sessions)},
-        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":((i.active_requests||0)>10?"warn":""), d:delta(i.active_requests, p?.active_requests)},
+        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests)},
         {label:"Memory In Use", value:((i.memory_in_use_mb||0)/1024).toFixed(2)+" GB", hint:`Target ${((i.target_memory_mb||0)/1024).toFixed(1)} GB / Host ${((i.physical_memory_mb||0)/1024).toFixed(1)} GB`, d:delta(i.memory_in_use_mb, p?.memory_in_use_mb)},
-        {label:"Batch Requests (cum)", value:fmtInt(i.batch_requests_per_sec_cum||0), hint:`Compilations: ${fmtInt(i.compilations_cum||0)}`, d:delta(i.batch_requests_per_sec_cum, p?.batch_requests_per_sec_cum)},
+        {label:"Batch Requests (cum)", value:fmtInt(i.batch_requests_per_sec_cum||0), hint:`Compilations: ${fmtInt(i.compilations_cum||0)}`, cls:"", d:delta(i.batch_requests_per_sec_cum, p?.batch_requests_per_sec_cum)},
         {label:"CPU Cores", value:i.cpu_count||'?', hint:"Logical schedulers"},
         {label:"Uptime", value:i.uptime_min!=null?(i.uptime_min/60).toFixed(1)+"h":'?', hint:`Started ${fmtDate(i.sqlserver_start_time)}`},
       ];
