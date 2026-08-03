@@ -369,6 +369,18 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
   </main>
 </div>
 
+<!-- Confirm modal (themed replacement for browser confirm()) -->
+<div class="modal-backdrop" id="confirm-backdrop">
+  <div class="modal" style="max-width:440px;">
+    <h2 id="confirm-title">Confirm</h2>
+    <div class="sub" id="confirm-message">Are you sure?</div>
+    <div class="actions" style="margin-top:20px;">
+      <button class="btn ghost" id="confirm-cancel">Cancel</button>
+      <button class="btn danger" id="confirm-ok">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- Detail modal (queries, indexes) -->
 <div class="modal-backdrop" id="detail-backdrop">
   <div class="modal modal-lg">
@@ -481,6 +493,32 @@ const THEME_LABELS = {
   'cyberpunk':'Cyberpunk','solarized-light':'Solarized Light','solarized-dark':'Solarized Dark',
   'nord':'Nord','highcontrast':'High Contrast'
 };
+// Themed confirm dialog — returns Promise<boolean>
+function confirmDialog(title, message){
+  return new Promise((resolve)=>{
+    el('confirm-title').textContent = title;
+    el('confirm-message').textContent = message || '';
+    const bd = el('confirm-backdrop');
+    bd.classList.add('show');
+    const cleanup = () => {
+      bd.classList.remove('show');
+      el('confirm-ok').removeEventListener('click', onOk);
+      el('confirm-cancel').removeEventListener('click', onCancel);
+      bd.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+    };
+    const onOk = ()=>{ cleanup(); resolve(true); };
+    const onCancel = ()=>{ cleanup(); resolve(false); };
+    const onBackdrop = (e)=>{ if(e.target.id==='confirm-backdrop'){ cleanup(); resolve(false); } };
+    const onKey = (e)=>{ if(e.key==='Escape'){ cleanup(); resolve(false); } if(e.key==='Enter'){ cleanup(); resolve(true); } };
+    el('confirm-ok').addEventListener('click', onOk);
+    el('confirm-cancel').addEventListener('click', onCancel);
+    bd.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+    setTimeout(()=>el('confirm-cancel').focus(), 50);
+  });
+}
+
 function updateThemeUi(){
   const cur = document.documentElement.getAttribute('data-theme');
   el('current-theme').textContent = THEME_LABELS[cur] || '';
@@ -630,7 +668,7 @@ function renderServerList(){
           e.stopPropagation();
           const id = btn.dataset.del;
           const s = servers.find(x=>x.id===id);
-          if(!confirm(`Remove server "${s?.name||id}"?`)) return;
+          if(!(await confirmDialog(`Remove server "${s?.name||id}"?`, `This will delete the entry from servers.json. The server itself is not affected.`))) return;
           await fetch('/api/servers/'+encodeURIComponent(id), {method:'DELETE'});
           const wasActive = id===activeServerId;
           await loadServers();
