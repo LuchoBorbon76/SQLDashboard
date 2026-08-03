@@ -632,6 +632,13 @@ async function collectFor(cfg) {
   if (data.tempdb === undefined || (useAzureDbBatch && (!data.tempdb || Object.keys(data.tempdb).length === 0))) {
     data.tempdb = useAzureDbBatch ? null : {};
   }
+
+  // Custom counters (run after main metrics so we don't slow down the first paint)
+  data.custom_counters = await runAllCounters(cfg);
+
+  // Append to history ring buffer (async, doesn't block response)
+  appendHistory(cfg.id, data).catch(() => {});
+
   return data;
 }
 
@@ -678,6 +685,120 @@ async function testConnection(cfg) {
 // ---------- Cache per server ----------
 const cache = new Map(); // serverId -> { at, data }
 const CACHE_MS = 4000;
+
+// ==============================
+// History ring buffer (per server, JSON on disk under history/)
+// Keeps last MAX_HISTORY samples (default 720 = 6 hours @ 30s)
+// ==============================
+const HISTORY_DIR = path.join(__dirname, 'history');
+await mkdir(HISTORY_DIR, { recursive: true });
+const MAX_HISTORY = 720;
+const historyBuffers = new Map(); // serverId -> array
+
+async function loadHistory(id) {
+  if (historyBuffers.has(id)) return historyBuffers.get(id);
+  try {
+    const raw = await readFile(path.join(HISTORY_DIR, `${id}.json`), 'utf8');
+    const arr = JSON.parse(raw);
+    historyBuffers.set(id, Array.isArray(arr) ? arr.slice(-MAX_HISTORY) : []);
+  } catch { historyBuffers.set(id, []); }
+  return historyBuffers.get(id);
+}
+async function saveHistory(id) {
+  const arr = historyBuffers.get(id) || [];
+  await writeFile(path.join(HISTORY_DIR, `${id}.json`), JSON.stringify(arr));
+}
+function extractHistorySample(data) {
+  const i = data.instance || {};
+  const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
+  const waits = data.waits || [];
+  const totalWait = waits.reduce((s,w)=>s + (Number(w.wait_time_s)||0), 0);
+  const totalSignal = waits.reduce((s,w)=>s + (Number(w.signal_wait_s)||0), 0);
+  const sample = {
+    t: Date.now(),
+    ple: i.page_life_expectancy ?? null,
+    bhr: Number(bhr.toFixed(2)),
+    memMb: i.memory_in_use_mb ?? null,
+    sessions: i.user_sessions ?? null,
+    active: i.active_requests ?? null,
+    blocked: i.blocked_requests ?? null,
+    waitS: Math.round(totalWait),
+    signalPct: totalWait > 0 ? Number((totalSignal/totalWait*100).toFixed(2)) : 0,
+    // Azure-specific
+    cpuPct: i.avg_cpu_percent ?? null,
+    memPct: i.avg_memory_percent ?? null,
+    ioPct: i.avg_data_io_percent ?? null,
+    logPct: i.avg_log_write_percent ?? null,
+    // Custom counter values (id -> number)
+    custom: {},
+  };
+  for (const cc of (data.custom_counters || [])) {
+    if (typeof cc.value === 'number') sample.custom[cc.id] = cc.value;
+  }
+  return sample;
+}
+async function appendHistory(id, data) {
+  const arr = await loadHistory(id);
+  arr.push(extractHistorySample(data));
+  if (arr.length > MAX_HISTORY) arr.splice(0, arr.length - MAX_HISTORY);
+  historyBuffers.set(id, arr);
+  // Fire-and-forget disk write; failures shouldn't block metrics
+  saveHistory(id).catch(() => {});
+}
+
+// ==============================
+// Custom counters
+// User-defined T-SQL that returns a single scalar value per collection.
+// Guarded by a keyword denylist (read-only only).
+// ==============================
+const CUSTOM_COUNTER_DENYLIST = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|TRUNCATE|MERGE|GRANT|REVOKE|BACKUP|RESTORE|RECONFIGURE|SHUTDOWN|WAITFOR|OPENROWSET|OPENDATASOURCE|xp_)\b/i;
+function validateCounterSql(sql) {
+  if (!sql || sql.length > 8000) throw new Error('SQL is empty or too long (>8000 chars)');
+  if (CUSTOM_COUNTER_DENYLIST.test(sql)) throw new Error('SQL contains blocked keyword (write/DDL/exec statements are not allowed)');
+  // Must contain SELECT
+  if (!/\bSELECT\b/i.test(sql)) throw new Error('SQL must contain a SELECT statement');
+  return true;
+}
+
+async function runCustomCounter(cfg, counter) {
+  validateCounterSql(counter.sql);
+  const outFile = path.join(TMP_DIR, `cc-${cfg.id}-${counter.id}.out`);
+  const sqlFile = path.join(TMP_DIR, `cc-${cfg.id}-${counter.id}.sql`);
+  // Wrap user SQL to guarantee a scalar (first column of first row).
+  // We add a leading SET NOCOUNT ON and SET ANSI_WARNINGS OFF.
+  const wrapped = `SET NOCOUNT ON;
+SET ANSI_WARNINGS OFF;
+${counter.sql}`;
+  await writeFile(sqlFile, wrapped, 'utf8');
+  if (cfg.auth === 'azuread-interactive') await ensureAzCliSession(cfg);
+  const useAzCli = cfg.auth === 'azuread-interactive';
+  const args = buildSqlcmdArgs(cfg, ['-l','5','-t','8','-h','-1','-w','8000','-i',sqlFile,'-o',outFile], { useAccessToken: useAzCli });
+  await new Promise((resolve, reject) => {
+    execFile(pickSqlcmd(cfg), args, { timeout: 12000, windowsHide: true, encoding: 'utf8' },
+      (err, stdout, stderr) => err ? reject(new Error((stderr||err.message).slice(0,300))) : resolve());
+  });
+  const raw = (await readFile(outFile, 'utf8')).trim();
+  if (!raw) return { value: null };
+  // Take first non-empty line, first "column" (whitespace/tab separated)
+  const firstLine = raw.split(/\r?\n/).find(l => l.trim().length > 0) || '';
+  const firstCol = firstLine.split(/\s{2,}|\t/)[0].trim();
+  const num = Number(firstCol);
+  return { value: Number.isFinite(num) ? num : firstCol };
+}
+
+async function runAllCounters(cfg) {
+  const counters = cfg.customCounters || [];
+  if (counters.length === 0) return [];
+  const results = await Promise.all(counters.map(c =>
+    runCustomCounter(cfg, c).catch(e => ({ error: e.message.slice(0, 200) }))
+  ));
+  return counters.map((c, i) => ({
+    id: c.id, name: c.name, unit: c.unit || '',
+    warnGt: c.warnGt, critGt: c.critGt, warnLt: c.warnLt, critLt: c.critLt,
+    description: c.description || '',
+    ...results[i],
+  }));
+}
 
 // ---------- HTTP request body parser ----------
 function readBody(req) {
@@ -788,7 +909,7 @@ SELECT (SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc='ONL
       return json(res, 200, publicView(cfg));
     }
 
-    if (p.startsWith('/api/servers/') && req.method === 'DELETE') {
+    if (p.startsWith('/api/servers/') && !p.includes('/counters') && req.method === 'DELETE') {
       const id = p.substring('/api/servers/'.length);
       const list = await loadServers();
       const idx = list.findIndex(s => s.id === id);
@@ -799,7 +920,7 @@ SELECT (SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc='ONL
       return json(res, 200, { ok: true });
     }
 
-    if (p.startsWith('/api/servers/') && req.method === 'PATCH') {
+    if (p.startsWith('/api/servers/') && !p.includes('/counters') && req.method === 'PATCH') {
       const id = p.substring('/api/servers/'.length);
       const body = await readBody(req);
       const list = await loadServers();
@@ -912,6 +1033,81 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
       try { data = JSON.parse(trimmed); }
       catch (e) { try { data = JSON.parse(trimmed.replace(/\r?\n/g,'')); } catch { return json(res, 500, { error: 'parse failed', raw: trimmed.slice(0,500) }); } }
       return json(res, 200, { queryId: Number(qid), db, plans: data.plans || [] });
+    }
+
+    // ==============================
+    // Custom counters CRUD (per server)
+    // ==============================
+    if (p.match(/^\/api\/servers\/[^/]+\/counters$/) && req.method === 'GET') {
+      const id = p.split('/')[3];
+      const list = await loadServers();
+      const s = list.find(x => x.id === id);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      return json(res, 200, s.customCounters || []);
+    }
+    if (p.match(/^\/api\/servers\/[^/]+\/counters$/) && req.method === 'POST') {
+      const id = p.split('/')[3];
+      const body = await readBody(req);
+      const list = await loadServers();
+      const s = list.find(x => x.id === id);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      if (!body.name || !body.sql) return json(res, 400, { error: 'name and sql required' });
+      try { validateCounterSql(body.sql); } catch (e) { return json(res, 400, { error: e.message }); }
+      s.customCounters = s.customCounters || [];
+      const cc = {
+        id: body.id || ('cc-' + crypto.randomBytes(3).toString('hex')),
+        name: body.name.slice(0, 60),
+        sql: body.sql.trim(),
+        unit: body.unit || '',
+        description: (body.description || '').slice(0, 200),
+        warnGt: body.warnGt === '' || body.warnGt == null ? null : Number(body.warnGt),
+        critGt: body.critGt === '' || body.critGt == null ? null : Number(body.critGt),
+        warnLt: body.warnLt === '' || body.warnLt == null ? null : Number(body.warnLt),
+        critLt: body.critLt === '' || body.critLt == null ? null : Number(body.critLt),
+      };
+      const idx = s.customCounters.findIndex(x => x.id === cc.id);
+      if (idx >= 0) s.customCounters[idx] = cc;
+      else s.customCounters.push(cc);
+      await saveServers(list);
+      cache.delete(id);
+      return json(res, 200, cc);
+    }
+    if (p.match(/^\/api\/servers\/[^/]+\/counters\/[^/]+$/) && req.method === 'DELETE') {
+      const parts = p.split('/');
+      const id = parts[3], ccid = parts[5];
+      const list = await loadServers();
+      const s = list.find(x => x.id === id);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      s.customCounters = (s.customCounters || []).filter(x => x.id !== ccid);
+      await saveServers(list);
+      cache.delete(id);
+      return json(res, 200, { ok: true });
+    }
+    if (p.match(/^\/api\/servers\/[^/]+\/counters\/test$/) && req.method === 'POST') {
+      const id = p.split('/')[3];
+      const body = await readBody(req);
+      const list = await loadServers();
+      const s = list.find(x => x.id === id);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      try { validateCounterSql(body.sql); } catch (e) { return json(res, 400, { error: e.message }); }
+      try {
+        const cfg = await resolveServer(s);
+        const result = await runCustomCounter(cfg, { id: 'test-' + Date.now(), sql: body.sql });
+        return json(res, 200, result);
+      } catch (e) {
+        return json(res, 400, { error: e.message.slice(0, 400) });
+      }
+    }
+
+    // ==============================
+    // History (trend samples)
+    // ==============================
+    if (p === '/api/history' && req.method === 'GET') {
+      const id = url.searchParams.get('serverId');
+      const limit = Math.min(720, Math.max(1, parseInt(url.searchParams.get('limit')||'120', 10)));
+      if (!id) return json(res, 400, { error: 'serverId required' });
+      const arr = await loadHistory(id);
+      return json(res, 200, arr.slice(-limit));
     }
 
     if (p === '/health') {

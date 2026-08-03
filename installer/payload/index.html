@@ -315,6 +315,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
           </select>
         </label>
         <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">⏸ Pause</button>
+        <button class="btn ghost" id="counters-btn" title="Manage custom counters">🎯 Counters</button>
         <button class="btn" id="refresh-btn">Refresh now</button>
         <div class="live-indicator">
           <div class="live-dot" id="live-dot"></div>
@@ -461,6 +462,69 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
   </div>
 </div>
 
+<!-- Custom counters modal -->
+<div class="modal-backdrop" id="counters-backdrop">
+  <div class="modal modal-lg">
+    <h2>Custom counters — <span id="counters-server-name"></span></h2>
+    <div class="sub">Read-only T-SQL that returns a single scalar value. Runs each refresh cycle. Blocked keywords: INSERT/UPDATE/DELETE/DROP/CREATE/ALTER/EXEC/TRUNCATE/MERGE/GRANT/REVOKE/BACKUP/RESTORE/xp_.</div>
+
+    <div id="counters-list" style="margin-bottom:16px;"></div>
+
+    <div style="border-top:1px solid var(--cp-border);padding-top:14px;margin-top:8px;">
+      <h3 style="margin:0 0 10px;font-size:14px;font-weight:600;">Add / Edit counter</h3>
+      <input type="hidden" id="cc-id">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="cc-name" maxlength="60" placeholder="Long-running requests">
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <label>Unit (optional)</label>
+          <input type="text" id="cc-unit" maxlength="12" placeholder="ms, MB, %">
+        </div>
+        <div>
+          <label>Description</label>
+          <input type="text" id="cc-description" maxlength="200" placeholder="What does this measure?">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>T-SQL (must return a single scalar)</label>
+        <textarea id="cc-sql" rows="4" style="width:100%;font-family:Consolas,'Cascadia Code',monospace;font-size:12px;padding:8px;background:var(--cp-bg);color:var(--cp-text);border:1px solid var(--cp-border);border-radius:8px;" placeholder="SELECT COUNT(*) FROM sys.dm_exec_requests WHERE total_elapsed_time > 30000"></textarea>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+        <div>
+          <label>Warn ≥</label>
+          <input type="number" id="cc-warnGt" step="any" placeholder="—">
+        </div>
+        <div>
+          <label>Critical ≥</label>
+          <input type="number" id="cc-critGt" step="any" placeholder="—">
+        </div>
+        <div>
+          <label>Warn ≤</label>
+          <input type="number" id="cc-warnLt" step="any" placeholder="—">
+        </div>
+        <div>
+          <label>Critical ≤</label>
+          <input type="number" id="cc-critLt" step="any" placeholder="—">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:8px;">Leave thresholds blank to skip. Both directions are supported (e.g. warn if under X and critical if over Y).</div>
+      <div class="error-banner" id="cc-err" style="display:none;margin-top:8px;"></div>
+      <div id="cc-test-result" style="display:none;margin-top:8px;padding:8px;background:var(--cp-bg);border:1px solid var(--cp-border);border-radius:8px;font-family:Consolas,'Cascadia Code',monospace;font-size:12px;"></div>
+      <div class="actions" style="margin-top:12px;">
+        <button class="btn ghost" id="cc-clear">Clear form</button>
+        <button class="btn ghost" id="cc-test">Test</button>
+        <button class="btn" id="cc-save">Save counter</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn ghost" id="counters-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const MIN_INTERVAL = 30;
 let refreshSeconds = Math.max(MIN_INTERVAL, Number(localStorage.getItem('refreshSeconds')) || 30);
@@ -596,6 +660,140 @@ el('f-auth').addEventListener('change', ()=>{ updateAuthFields(); updateDatabase
 el('f-server').addEventListener('input', updateDatabaseRequired);
 el('modal-save').addEventListener('click', saveServer);
 el('f-database-fetch').addEventListener('click', fetchDatabaseList);
+
+// -------------------------------------------------------
+// Custom counters manager
+// -------------------------------------------------------
+el('counters-btn').addEventListener('click', openCountersModal);
+el('counters-close').addEventListener('click', () => el('counters-backdrop').classList.remove('show'));
+let ccModalMouseDownTarget = null;
+el('counters-backdrop').addEventListener('mousedown', (e)=>{ ccModalMouseDownTarget = e.target; });
+el('counters-backdrop').addEventListener('mouseup', (e)=>{
+  if(ccModalMouseDownTarget && ccModalMouseDownTarget.id==='counters-backdrop' && e.target.id==='counters-backdrop') el('counters-backdrop').classList.remove('show');
+  ccModalMouseDownTarget = null;
+});
+el('cc-clear').addEventListener('click', clearCounterForm);
+el('cc-test').addEventListener('click', testCounter);
+el('cc-save').addEventListener('click', saveCounter);
+
+function clearCounterForm(){
+  ['cc-id','cc-name','cc-unit','cc-description','cc-sql','cc-warnGt','cc-critGt','cc-warnLt','cc-critLt']
+    .forEach(id => el(id).value = '');
+  el('cc-err').style.display = 'none';
+  el('cc-test-result').style.display = 'none';
+}
+
+async function openCountersModal(){
+  if (!activeServerId) { alert('Select a server first.'); return; }
+  const s = servers.find(x=>x.id===activeServerId);
+  el('counters-server-name').textContent = s?.name || activeServerId;
+  clearCounterForm();
+  el('counters-backdrop').classList.add('show');
+  await renderCountersList();
+}
+
+async function renderCountersList(){
+  const r = await fetch('/api/servers/'+encodeURIComponent(activeServerId)+'/counters');
+  const list = await r.json();
+  if (!Array.isArray(list) || list.length === 0) {
+    el('counters-list').innerHTML = '<div class="hint">No custom counters yet. Add one below.</div>';
+    return;
+  }
+  el('counters-list').innerHTML = list.map(cc => {
+    const thresholds = [];
+    if (cc.warnGt != null) thresholds.push('warn ≥ '+cc.warnGt+(cc.unit||''));
+    if (cc.critGt != null) thresholds.push('crit ≥ '+cc.critGt+(cc.unit||''));
+    if (cc.warnLt != null) thresholds.push('warn ≤ '+cc.warnLt+(cc.unit||''));
+    if (cc.critLt != null) thresholds.push('crit ≤ '+cc.critLt+(cc.unit||''));
+    return `<div style="display:flex;gap:10px;padding:10px;border:1px solid var(--cp-border);border-radius:8px;margin-bottom:6px;align-items:flex-start;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;">${esc(cc.name)}${cc.unit?' <span style="color:var(--cp-text-muted);font-weight:400;">('+esc(cc.unit)+')</span>':''}</div>
+        <div style="font-size:11px;color:var(--cp-text-muted);margin-top:2px;">${thresholds.length?esc(thresholds.join(' · ')):'no thresholds'}</div>
+        <div style="font-family:Consolas,monospace;font-size:11px;color:var(--cp-text-secondary);margin-top:4px;white-space:pre-wrap;max-height:60px;overflow:hidden;">${esc(cc.sql)}</div>
+      </div>
+      <button class="btn ghost" data-cc-edit="${esc(cc.id)}" style="padding:4px 10px;">Edit</button>
+      <button class="btn ghost" data-cc-del="${esc(cc.id)}" style="padding:4px 10px;">×</button>
+    </div>`;
+  }).join('');
+  el('counters-list').querySelectorAll('[data-cc-edit]').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.ccEdit;
+      const cc = list.find(x=>x.id===id);
+      if (!cc) return;
+      el('cc-id').value = cc.id;
+      el('cc-name').value = cc.name;
+      el('cc-unit').value = cc.unit || '';
+      el('cc-description').value = cc.description || '';
+      el('cc-sql').value = cc.sql;
+      el('cc-warnGt').value = cc.warnGt ?? '';
+      el('cc-critGt').value = cc.critGt ?? '';
+      el('cc-warnLt').value = cc.warnLt ?? '';
+      el('cc-critLt').value = cc.critLt ?? '';
+      el('cc-err').style.display = 'none';
+      el('cc-test-result').style.display = 'none';
+    });
+  });
+  el('counters-list').querySelectorAll('[data-cc-del]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const id = b.dataset.ccDel;
+      const cc = list.find(x=>x.id===id);
+      if(!(await confirmDialog(`Remove counter "${cc?.name||id}"?`, 'This deletes it from servers.json.'))) return;
+      await fetch('/api/servers/'+encodeURIComponent(activeServerId)+'/counters/'+encodeURIComponent(id), {method:'DELETE'});
+      await renderCountersList();
+    });
+  });
+}
+
+function counterFormPayload(){
+  const parse = v => v === '' ? null : Number(v);
+  return {
+    id: el('cc-id').value || undefined,
+    name: el('cc-name').value.trim(),
+    unit: el('cc-unit').value.trim(),
+    description: el('cc-description').value.trim(),
+    sql: el('cc-sql').value.trim(),
+    warnGt: parse(el('cc-warnGt').value),
+    critGt: parse(el('cc-critGt').value),
+    warnLt: parse(el('cc-warnLt').value),
+    critLt: parse(el('cc-critLt').value),
+  };
+}
+
+async function testCounter(){
+  el('cc-err').style.display = 'none';
+  el('cc-test-result').style.display = 'none';
+  const p = counterFormPayload();
+  if (!p.sql) { el('cc-err').textContent = 'SQL is required.'; el('cc-err').style.display = 'block'; return; }
+  el('cc-test-result').textContent = 'Running…';
+  el('cc-test-result').style.display = 'block';
+  const r = await fetch('/api/servers/'+encodeURIComponent(activeServerId)+'/counters/test', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({sql: p.sql})
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    el('cc-test-result').style.display = 'none';
+    el('cc-err').textContent = 'Test failed: ' + (data.error || 'unknown');
+    el('cc-err').style.display = 'block';
+  } else {
+    el('cc-test-result').innerHTML = 'Result: <b>' + esc(String(data.value ?? '—')) + '</b>' + (p.unit ? ' ' + esc(p.unit) : '');
+  }
+}
+
+async function saveCounter(){
+  el('cc-err').style.display = 'none';
+  const p = counterFormPayload();
+  if (!p.name || !p.sql) { el('cc-err').textContent = 'Name and SQL are required.'; el('cc-err').style.display = 'block'; return; }
+  const r = await fetch('/api/servers/'+encodeURIComponent(activeServerId)+'/counters', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(p)
+  });
+  const data = await r.json();
+  if (!r.ok) { el('cc-err').textContent = data.error || 'Failed to save.'; el('cc-err').style.display = 'block'; return; }
+  clearCounterForm();
+  await renderCountersList();
+  // Force next refresh to pick up counters immediately
+  const st = serverState.get(activeServerId);
+  if (st) { st.lastFetchAt = 0; }
+}
 
 let editingServerId = null;   // null = add mode, otherwise = edit mode
 
@@ -733,23 +931,26 @@ async function loadServers(){
 }
 
 function renderServerList(){
+  const now = Date.now();
   const html = servers.map(s => {
     const initials = s.name.split(/[\s-_]/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase() || 'S';
     const authLabel = ({windows:'WinAuth', sqlauth:'SQL', 'azuread-integrated':'Entra', 'azuread-password':'Entra-PW', 'azuread-interactive':'Entra-MFA'})[s.auth] || s.auth;
     const st = serverState.get(s.id);
     let statusCls = '';
+    let freshness = '';
     if (st) {
           if (st.lastError) statusCls = 'err';
           else if (st.data) {
             const health = computeHealth(st.data);
             statusCls = health.level === 'critical' ? 'err' : health.level === 'warning' ? 'warn' : 'ok';
           }
+          if (st.lastFetchAt) freshness = formatAgo(now - st.lastFetchAt);
     }
     return `<div class="server-item ${s.id===activeServerId?'active':''}" data-id="${esc(s.id)}">
           <div class="icon">${esc(initials)}<div class="status-dot ${statusCls}"></div></div>
           <div class="body">
             <div class="name">${esc(s.name)}</div>
-            <div class="meta">${esc(s.server)} · ${authLabel}</div>
+            <div class="meta">${esc(s.server)} · ${authLabel}${freshness ? ' · <span class="freshness">'+freshness+'</span>' : ''}</div>
           </div>
           <button class="edit" data-edit="${esc(s.id)}" title="Edit">✎</button>
       <button class="del" data-del="${esc(s.id)}" title="Remove">×</button>
@@ -788,6 +989,25 @@ function renderServerList(){
     });
   });
 }
+function formatAgo(ms){
+  if (ms < 0) ms = 0;
+  const s = Math.floor(ms/1000);
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s/60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m/60);
+  return h + 'h ago';
+}
+// Refresh freshness labels every second without re-rendering the whole list
+setInterval(() => {
+  const now = Date.now();
+  document.querySelectorAll('.server-item').forEach(item => {
+    const id = item.dataset.id;
+    const st = serverState.get(id);
+    const span = item.querySelector('.freshness');
+    if (span && st?.lastFetchAt) span.textContent = formatAgo(now - st.lastFetchAt);
+  });
+}, 1000);
 
 function renderEmpty(){
   el('current-server-title').textContent = 'No server selected';
@@ -1013,10 +1233,48 @@ function computeHealth(DATA){
     }
   }
 
+  // === CUSTOM COUNTERS ===
+  const ccs = DATA.custom_counters || [];
+  for (const cc of ccs) {
+    if (cc.error) { warning.push(`Counter "${cc.name}" failed: ${cc.error}`); continue; }
+    if (typeof cc.value !== 'number') continue;
+    const v = cc.value;
+    const u = cc.unit || '';
+    const label = `${cc.name} ${v}${u}`;
+    if (cc.critGt != null && v >= cc.critGt) critical.push(`${label} ≥ ${cc.critGt}${u}`);
+    else if (cc.warnGt != null && v >= cc.warnGt) warning.push(`${label} ≥ ${cc.warnGt}${u}`);
+    if (cc.critLt != null && v <= cc.critLt) critical.push(`${label} ≤ ${cc.critLt}${u}`);
+    else if (cc.warnLt != null && v <= cc.warnLt) warning.push(`${label} ≤ ${cc.warnLt}${u}`);
+  }
+
   let level = 'healthy', label = 'Healthy';
   if (critical.length > 0) { level = 'critical'; label = 'Critical'; }
   else if (warning.length > 0) { level = 'warning'; label = 'Warning'; }
   return { level, label, critical, warning };
+}
+
+function counterCls(cc) {
+  if (typeof cc.value !== 'number') return '';
+  const v = cc.value;
+  if ((cc.critGt != null && v >= cc.critGt) || (cc.critLt != null && v <= cc.critLt)) return 'crit';
+  if ((cc.warnGt != null && v >= cc.warnGt) || (cc.warnLt != null && v <= cc.warnLt)) return 'warn';
+  return '';
+}
+function renderCustomCounterCards(DATA) {
+  const ccs = DATA.custom_counters || [];
+  if (ccs.length === 0) return '';
+  return ccs.map(cc => {
+    const cls = counterCls(cc);
+    const val = cc.error ? '—' : (typeof cc.value === 'number' ? fmtInt(cc.value) : esc(String(cc.value ?? '—')));
+    const unit = cc.error ? '' : esc(cc.unit || '');
+    const hint = cc.error ? `<span style="color:var(--cp-danger)">${esc(cc.error)}</span>` : esc(cc.description || 'Custom counter');
+    return `<div class="kpi ${cls}">
+      <div class="badge ${cls}">CUSTOM</div>
+      <div class="label">${esc(cc.name)}</div>
+      <div class="value">${val}${unit ? ' <span style="font-size:14px;color:var(--cp-text-secondary);">'+unit+'</span>' : ''}</div>
+      <div class="hint">${hint}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderHealth(DATA){
@@ -1102,7 +1360,7 @@ function render(DATA, PREV){
         <div class="label">${k.label}</div>
         <div class="value">${k.value}</div>
         <div class="hint">${k.hint||''}</div>
-      </div>`).join('');
+      </div>`).join('') + renderCustomCounterCards(DATA);
 
     // Narrative — sourced from computeHealth() so it always matches the semaphore
     const h = computeHealth(DATA);
