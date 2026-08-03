@@ -348,7 +348,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     </div>
 
     <div class="grid">
-      <div class="card"><h2>File I/O Latency</h2><div class="card-sub">Per-file read/write stalls — green &lt;10ms, amber 10–20ms, red &gt;20ms</div>
+      <div class="card"><h2>File I/O Latency</h2><div class="card-sub" id="fileio-sub">Per-file read/write stalls</div>
         <div class="scroll"><table><thead><tr>
           <th>Database</th><th>File</th><th>Type</th><th class="num">Size MB</th><th class="num">Read ms</th><th class="num">Write ms</th>
         </tr></thead><tbody id="file-io"></tbody></table></div>
@@ -804,17 +804,28 @@ function computeHealth(DATA){
   }
 
   // === FILE I/O LATENCY ===
-  // MS/Paul Randal thresholds: <10ms good, 10-20ms warning, >20ms bad
+  // Thresholds are engine-aware:
+  //   on-prem: Paul Randal — data >10ms warn, >20ms critical; log >5ms critical
+  //   Azure SQL DB / MI: remote storage has higher baseline; data >30ms warn,
+  //     >100ms critical; log >20ms warn, >50ms critical
+  const isAzureAny = isAzureDb || DATA.engine === 'azure-mi';
+  const dataWarn = isAzureAny ? 30 : 10;
+  const dataCrit = isAzureAny ? 100 : 20;
+  const logWarn  = isAzureAny ? 20 : 5;
+  const logCrit  = isAzureAny ? 50 : 20;
+
   const io = DATA.file_io || [];
   const dataFiles = io.filter(f => f.file_type === 'ROWS');
   const logFiles  = io.filter(f => f.file_type === 'LOG');
-  const badData = dataFiles.filter(f => (f.avg_read_latency_ms||0) > 20 || (f.avg_write_latency_ms||0) > 20);
-  const badLog  = logFiles.filter(f => (f.avg_write_latency_ms||0) > 5);   // Log writes need <5ms
-  const midData = dataFiles.filter(f => !badData.includes(f) && ((f.avg_read_latency_ms||0) > 10 || (f.avg_write_latency_ms||0) > 10));
-  if (badData.length >= 2) critical.push(`${badData.length} data files with I/O >20ms`);
-  else if (badData.length === 1) warning.push(`1 data file with I/O >20ms`);
-  else if (midData.length >= 3) warning.push(`${midData.length} data files with I/O 10-20ms`);
-  if (badLog.length > 0) critical.push(`${badLog.length} log file(s) with write >5ms (log disk slow)`);
+  const badData = dataFiles.filter(f => (f.avg_read_latency_ms||0) > dataCrit || (f.avg_write_latency_ms||0) > dataCrit);
+  const midData = dataFiles.filter(f => !badData.includes(f) && ((f.avg_read_latency_ms||0) > dataWarn || (f.avg_write_latency_ms||0) > dataWarn));
+  const badLog  = logFiles.filter(f => (f.avg_write_latency_ms||0) > logCrit);
+  const midLog  = logFiles.filter(f => !badLog.includes(f) && (f.avg_write_latency_ms||0) > logWarn);
+  if (badData.length >= 2) critical.push(`${badData.length} data files with I/O >${dataCrit}ms`);
+  else if (badData.length === 1) warning.push(`1 data file with I/O >${dataCrit}ms`);
+  else if (midData.length >= 3) warning.push(`${midData.length} data files with I/O ${dataWarn}-${dataCrit}ms`);
+  if (badLog.length > 0) critical.push(`${badLog.length} log file(s) with write >${logCrit}ms`);
+  else if (midLog.length > 0) warning.push(`${midLog.length} log file(s) with write >${logWarn}ms`);
 
   // === MISSING INDEXES ===
   // Improvement score = avg_user_impact * avg_total_user_cost * user_seeks+user_scans
@@ -1037,10 +1048,13 @@ function render(DATA, PREV){
       tr.addEventListener('click', ()=>openQueryDetail(tr.dataset.db, tr.dataset.qid));
     });
 
+    const heatWarn = isAzure || DATA.engine === 'azure-mi' ? 30 : 10;
+    const heatCrit = isAzure || DATA.engine === 'azure-mi' ? 100 : 20;
+    el('fileio-sub').textContent = `Per-file read/write stalls — green <${heatWarn}ms, amber ${heatWarn}-${heatCrit}ms, red >${heatCrit}ms`;
     const heat = (ms)=>{
       if(ms==null) return "";
-      if(ms<10) return "background:rgba(22,163,74,0.15);color:var(--cp-success);";
-      if(ms<20) return "background:rgba(245,158,11,0.18);color:var(--cp-warning);";
+      if(ms<heatWarn) return "background:rgba(22,163,74,0.15);color:var(--cp-success);";
+      if(ms<heatCrit) return "background:rgba(245,158,11,0.18);color:var(--cp-warning);";
       return "background:rgba(220,38,38,0.18);color:var(--cp-danger);";
     };
     el('file-io').innerHTML = (DATA.file_io||[]).map(f=>`
