@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -960,26 +960,16 @@ function render(DATA, PREV){
         <div class="hint">${k.hint||''}</div>
       </div>`).join('');
 
-    // Narrative
-    const findings = [];
-    if((i.blocked_requests||0)>0) findings.push(`<b>${i.blocked_requests} blocked session${i.blocked_requests>1?'s':''}</b> â€” investigate the head blocker`);
-    if(!isAzure){
-      const pleGood = (i.page_life_expectancy||0) >= 300;
-      const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
-      if(!pleGood && (i.page_life_expectancy!=null)) findings.push(`Page Life Expectancy is <b>${i.page_life_expectancy}s</b> (target 300s+) â€” memory pressure`);
-      if(bhr<98) findings.push(`Buffer cache hit ratio <b>${bhr.toFixed(1)}%</b> is below 98% target`);
+    // Narrative — sourced from computeHealth() so it always matches the semaphore
+    const h = computeHealth(DATA);
+    if (h.critical.length === 0 && h.warning.length === 0) {
+      el('narrative').innerHTML = '<b>Health summary:</b> No pressing issues detected. Instance looks healthy.';
     } else {
-      if((i.avg_cpu_percent||0) >= 80) findings.push(`Avg CPU <b>${(i.avg_cpu_percent).toFixed(1)}%</b> is high`);
-      if((i.avg_data_io_percent||0) >= 80) findings.push(`Data I/O <b>${(i.avg_data_io_percent).toFixed(1)}%</b> is high`);
-      if((i.avg_log_write_percent||0) >= 80) findings.push(`Log Write <b>${(i.avg_log_write_percent).toFixed(1)}%</b> is high`);
+      const parts = [];
+      if (h.critical.length > 0) parts.push('<b style="color:var(--cp-danger)">Critical:</b> ' + h.critical.map(esc).join(' &bull; '));
+      if (h.warning.length > 0) parts.push('<b style="color:var(--cp-warning)">Warnings:</b> ' + h.warning.map(esc).join(' &bull; '));
+      el('narrative').innerHTML = parts.join(' &nbsp;|&nbsp; ');
     }
-    const topWait = (DATA.waits||[])[0];
-    if(topWait) findings.push(`Dominant wait: <b>${esc(topWait.wait_type)}</b> â€” ${((topWait.wait_time_s||0)/60).toFixed(1)} min accumulated`);
-    const neverBackedUp = (DATA.databases||[]).filter(d=>!['tempdb','model'].includes(d.name) && !d.last_full_backup);
-    if(neverBackedUp.length>0) findings.push(`<b>${neverBackedUp.length} DB(s) never backed up</b>: ${neverBackedUp.map(d=>esc(d.name)).join(', ')}`);
-    if((DATA.missing_indexes||[]).length>0) findings.push(`<b>${DATA.missing_indexes.length} missing index suggestion(s)</b> â€” top score ${fmtInt(DATA.missing_indexes[0].improvement_score)}`);
-    if(findings.length===0) findings.push("No pressing issues detected. Instance looks healthy.");
-    el('narrative').innerHTML = "<b>Health summary:</b> " + findings.join(" â€¢ ");
 
     // Waits
     const waits = DATA.waits||[];
