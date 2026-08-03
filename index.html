@@ -59,11 +59,15 @@ body{margin:0;background:var(--cp-bg);color:var(--cp-text);font-family:"Segoe UI
 .brand-title{font-size:15px;font-weight:700;color:var(--cp-text);letter-spacing:-0.01em;}
 .brand-subtitle{font-size:9px;font-weight:800;letter-spacing:0.3em;color:var(--cp-accent);margin-top:3px;}
 .brand-tag{font-size:11px;color:var(--cp-text-muted);padding-left:2px;letter-spacing:0.02em;}
-.sidebar-footer{padding-top:10px;border-top:1px solid var(--cp-border);font-size:10px;color:var(--cp-text-soft);line-height:1.4;text-align:center;}
+.sidebar-footer{padding-top:14px;border-top:1px solid var(--cp-border);text-align:center;position:relative;}
+.sidebar-footer .theme-menu{position:absolute;bottom:calc(100% + 8px);left:0;right:0;}
+.sidebar-footer .footer-actions{display:flex;justify-content:center;gap:22px;margin-bottom:12px;}
+.sidebar-footer .fa-btn{background:transparent;border:none;color:var(--cp-text-muted);cursor:pointer;padding:6px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.15s,background 0.15s,transform 0.1s;}
+.sidebar-footer .fa-btn:hover{color:var(--cp-text);background:var(--cp-surface-soft);}
+.sidebar-footer .fa-btn:active{transform:scale(0.92);}
+.sidebar-footer .fa-btn.danger:hover{color:var(--cp-danger);background:rgba(220,38,38,0.08);}
+.sidebar-footer .sig-line{font-size:10px;color:var(--cp-text-soft);line-height:1.5;}
 .sidebar-footer .sig{color:var(--cp-accent);font-weight:600;}
-.sidebar-footer .disclaimer{margin-top:6px;font-size:9px;color:var(--cp-text-soft);opacity:0.85;}
-.sidebar-footer .exit-link{display:block;width:100%;background:transparent;border:1px solid rgba(220,38,38,0.3);color:var(--cp-danger);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:10px;font-weight:500;}
-.sidebar-footer .exit-link:hover{background:rgba(220,38,38,0.1);border-color:var(--cp-danger);}
 .sidebar h1{margin:0 0 4px;font-size:16px;font-weight:600;letter-spacing:-0.01em;}
 .sidebar .accent-dot{display:inline-block;width:8px;height:8px;background:var(--cp-accent);border-radius:50%;margin-right:8px;vertical-align:middle;animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
@@ -298,9 +302,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     <h3>Servers</h3>
     <div class="server-list" id="server-list"><div class="empty" style="font-size:12px;">Loading…</div></div>
     <button class="add-btn" id="add-server-btn">+ Add server</button>
-    <div class="theme-wrap" style="position:relative;">
-      <button class="theme-btn" id="theme-btn" title="Choose theme">🎨 Theme <span id="current-theme" style="opacity:0.7;font-size:11px;margin-left:4px;"></span>
-      </button>
+    <div class="sidebar-footer">
       <div class="theme-menu" id="theme-menu">
         <div class="theme-menu-title">Choose theme</div>
         <button class="theme-opt" data-theme="light"><span class="sw" style="background:linear-gradient(135deg,#f7f4ef 50%,#b11f4b 50%)"></span>Clawpilot Light</button>
@@ -315,16 +317,18 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
         <button class="theme-opt" data-theme="nord"><span class="sw" style="background:linear-gradient(135deg,#2e3440 50%,#88c0d0 50%)"></span>Nord</button>
         <button class="theme-opt" data-theme="highcontrast"><span class="sw" style="background:linear-gradient(135deg,#000 50%,#ffff00 50%)"></span>High Contrast</button>
       </div>
-    </div>
-    <div class="sidebar-footer">
-      <button class="exit-link" id="exit-btn" title="Stop the dashboard server and close this tab">⏻ Stop server &amp; exit</button>
-      Created by <span class="sig">Luis Fernando Borbon</span><br>
-      <span style="opacity:0.7;">© 2026 · v1.0</span>
-      <div class="disclaimer">
-        Provided <b>as-is</b>, without warranty of any kind.
-        Not affiliated with or endorsed by Microsoft.
-        Read-only DMV queries; verify recommendations before applying.
+      <div class="footer-actions">
+        <button class="fa-btn" id="theme-btn" title="Choose theme" aria-label="Theme">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.66 0 3-1.34 3-3 0-.78-.3-1.5-.79-2.04-.48-.53-.78-1.24-.78-2 0-1.63 1.34-2.96 2.97-2.96H18a4 4 0 0 0 4-4c0-4.42-4.48-8-10-8z"/><circle cx="6.5" cy="12.5" r="1.1"/><circle cx="9.5" cy="7.5" r="1.1"/><circle cx="14.5" cy="7.5" r="1.1"/><circle cx="17.5" cy="12.5" r="1.1"/></svg>
+        </button>
+        <button class="fa-btn" id="info-btn" title="About this dashboard" aria-label="About">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><line x1="12" y1="11" x2="12" y2="16.5"/><circle cx="12" cy="7.75" r="1" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="fa-btn danger" id="exit-btn" title="Stop the dashboard server and close this tab" aria-label="Exit">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 4.5A9 9 0 1 0 15.5 4.5"/><line x1="12" y1="2.5" x2="12" y2="12"/></svg>
+        </button>
       </div>
+      <div class="sig-line">Created by <span class="sig">Luis Fernando Borbon</span> · <span style="opacity:0.7;">© 2026 · v1.0</span></div>
     </div>
   </aside>
 
@@ -422,6 +426,25 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     <div class="card"><h2>Active Sessions</h2><div class="card-sub">Non-system requests currently running</div><div id="active"></div></div>
 
   </main>
+</div>
+
+<!-- About / Info modal -->
+<div class="modal-backdrop" id="about-backdrop">
+  <div class="modal confirm-modal" style="max-width:520px;">
+    <div class="confirm-icon" style="background:rgba(14,165,233,0.12);color:var(--cp-accent);box-shadow:0 0 0 6px rgba(14,165,233,0.05);">i</div>
+    <h2>SQL Performance Dashboard</h2>
+    <div class="sub" style="text-align:left;">
+      <p style="margin:6px 0;text-align:center;">Multi-instance live monitoring for SQL Server, Azure SQL Database, and SQL Managed Instance.</p>
+      <p style="margin:12px 0 6px;"><b>Created by</b> <span class="sig" style="color:var(--cp-accent);font-weight:600;">Luis Fernando Borbon</span> · v1.0 · © 2026</p>
+      <p style="margin:10px 0;font-size:12.5px;color:var(--cp-text-muted);">Provided <b>as-is</b>, without warranty of any kind. Not affiliated with or endorsed by Microsoft. Uses read-only DMV queries; verify all recommendations before applying to production.</p>
+      <p style="margin:10px 0;font-size:12.5px;">
+        <b>Source:</b> <a href="https://github.com/LuchoBorbon76/SQLDashboard" target="_blank" rel="noopener" style="color:var(--cp-accent);">github.com/LuchoBorbon76/SQLDashboard</a>
+      </p>
+    </div>
+    <div class="actions" style="margin-top:18px;">
+      <button class="btn" id="about-close">Close</button>
+    </div>
+  </div>
 </div>
 
 <!-- Confirm modal (themed replacement for browser confirm()) -->
@@ -722,12 +745,22 @@ function confirmDialog(title, message, okLabel, opts){
 
 function updateThemeUi(){
   const cur = document.documentElement.getAttribute('data-theme');
-  el('current-theme').textContent = THEME_LABELS[cur] || '';
+  const label = el('current-theme');
+  if (label) label.textContent = THEME_LABELS[cur] || '';
   el('theme-menu').querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.theme===cur));
 }
 el('theme-btn').addEventListener('click', (e)=>{
   e.stopPropagation();
   el('theme-menu').classList.toggle('open');
+});
+// Info / About modal
+el('info-btn').addEventListener('click', () => el('about-backdrop').classList.add('show'));
+el('about-close').addEventListener('click', () => el('about-backdrop').classList.remove('show'));
+let aboutMouseDownTarget = null;
+el('about-backdrop').addEventListener('mousedown', (e)=>{ aboutMouseDownTarget = e.target; });
+el('about-backdrop').addEventListener('mouseup', (e)=>{
+  if(aboutMouseDownTarget && aboutMouseDownTarget.id==='about-backdrop' && e.target.id==='about-backdrop') el('about-backdrop').classList.remove('show');
+  aboutMouseDownTarget = null;
 });
 el('theme-menu').querySelectorAll('.theme-opt').forEach(btn=>{
   btn.addEventListener('click', ()=>{
