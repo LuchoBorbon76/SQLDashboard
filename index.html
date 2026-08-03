@@ -662,10 +662,11 @@ const THEME_LABELS = {
   'nord':'Nord','highcontrast':'High Contrast'
 };
 // Themed confirm dialog — returns Promise<boolean>
-function confirmDialog(title, message){
+function confirmDialog(title, message, okLabel){
   return new Promise((resolve)=>{
     el('confirm-title').textContent = title;
     el('confirm-message').textContent = message || '';
+    el('confirm-ok').textContent = okLabel || 'Delete';
     const bd = el('confirm-backdrop');
     bd.classList.add('show');
     let downTarget = null;
@@ -808,7 +809,8 @@ el('export-btn').addEventListener('click', () => {
 el('exit-btn').addEventListener('click', async () => {
   const ok = await confirmDialog(
     'Exit dashboard?',
-    'This stops the local Node server (http://sql-dashboard:8765) and closes this tab. You will need to relaunch it from the Start Menu / desktop shortcut to view the dashboard again.'
+    'This stops the local Node server (http://sql-dashboard:8765) and closes this tab. You will need to relaunch it from the Start Menu / desktop shortcut to view the dashboard again.',
+    'Exit'
   );
   if (!ok) return;
   try {
