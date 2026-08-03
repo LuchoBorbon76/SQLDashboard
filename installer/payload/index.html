@@ -313,7 +313,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
             <option value="1800">30 min</option>
           </select>
         </label>
-        <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">¸ Pause</button>
+        <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">⏸ Pause</button>
         <button class="btn" id="refresh-btn">Refresh now</button>
         <div class="live-indicator">
           <div class="live-dot" id="live-dot"></div>
@@ -509,7 +509,7 @@ updateThemeUi();
 el('refresh-btn').addEventListener('click', ()=>{ countdown = 0; fetchMetrics(); });
 el('pause-btn').addEventListener('click', ()=>{
   paused = !paused;
-  el('pause-btn').textContent = paused ? '▶ Resume' : '¸ Pause';
+  el('pause-btn').textContent = paused ? '▶ Resume' : '⏸ Pause';
   el('pause-btn').classList.toggle('ghost', !paused);
   el('live-dot').classList.toggle('paused', paused);
   if(paused){ setStatus('paused','Paused'); }
