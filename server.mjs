@@ -177,21 +177,97 @@ async function resolveServer(s) {
 }
 
 // Return sqlcmd arg list for auth + connection options
-function buildSqlcmdArgs(cfg, extraArgs = []) {
+// ==============================
+// Access token cache for Entra ID Interactive (MFA)
+// Acquires an access token ONCE via a PowerShell/Az.Accounts (or MSAL) helper,
+// caches it in memory, and reuses across all sqlcmd invocations by passing it via
+// SQLCMDACCESSTOKEN + --authentication-method=ActiveDirectoryAccessToken.
+// This prevents the browser prompt from firing on every metrics collection.
+// ==============================
+const tokenCache = new Map();   // serverId -> { token, expiresAt }
+const tokenLocks = new Map();   // serverId -> Promise (avoid concurrent acquisitions)
+
+async function acquireEntraToken(cfg) {
+  const now = Date.now();
+  const cached = tokenCache.get(cfg.id);
+  // Renew 5 min before expiry
+  if (cached && cached.expiresAt - 300000 > now) return cached.token;
+  if (tokenLocks.has(cfg.id)) return tokenLocks.get(cfg.id);
+
+  const p = (async () => {
+    // Use Az.Accounts if installed; otherwise fall back to MSAL.PS; otherwise
+    // shell out to `az account get-access-token` (requires Azure CLI).
+    const psScript = `
+$ErrorActionPreference = 'Stop'
+$user = '${(cfg.user || '').replace(/'/g, "''")}'
+$resource = 'https://database.windows.net/'
+try {
+  # Prefer Azure CLI (already installed on most dev boxes; supports device code + interactive)
+  $azOut = & az account get-access-token --resource $resource 2>$null | ConvertFrom-Json
+  if ($azOut -and $azOut.accessToken) {
+    Write-Output ("TOKEN::" + $azOut.accessToken)
+    Write-Output ("EXPIRES::" + $azOut.expiresOn)
+    exit 0
+  }
+} catch {}
+try {
+  # Fallback: Az.Accounts module
+  Import-Module Az.Accounts -ErrorAction Stop -DisableNameChecking
+  $ctx = Get-AzContext -ErrorAction SilentlyContinue
+  if (-not $ctx) { Connect-AzAccount -ErrorAction Stop | Out-Null }
+  $t = Get-AzAccessToken -ResourceUrl $resource -ErrorAction Stop
+  Write-Output ("TOKEN::" + $t.Token)
+  Write-Output ("EXPIRES::" + $t.ExpiresOn.UtcDateTime.ToString('o'))
+  exit 0
+} catch {
+  Write-Error ("Token acquisition failed: " + $_.Exception.Message)
+  exit 1
+}
+`;
+    const scriptFile = path.join(TMP_DIR, `token-${cfg.id}.ps1`);
+    await writeFile(scriptFile, psScript, 'utf8');
+    return new Promise((resolve, reject) => {
+      execFile('powershell.exe',
+        ['-NoProfile','-ExecutionPolicy','Bypass','-File', scriptFile],
+        { timeout: 180000, windowsHide: false, encoding: 'utf8' },  // Show window so MFA popup works
+        (err, stdout, stderr) => {
+          if (err) return reject(new Error(`Token acquire failed: ${(stderr||err.message).slice(0,300)}`));
+          const tokMatch = stdout.match(/TOKEN::(.+)/);
+          const expMatch = stdout.match(/EXPIRES::(.+)/);
+          if (!tokMatch) return reject(new Error(`No token in output: ${stdout.slice(0,300)}`));
+          const token = tokMatch[1].trim();
+          const expIso = expMatch ? expMatch[1].trim() : null;
+          const expiresAt = expIso ? new Date(expIso).getTime() : (Date.now() + 3300000); // 55 min fallback
+          tokenCache.set(cfg.id, { token, expiresAt });
+          console.log(`Acquired Entra token for ${cfg.id} (expires ${new Date(expiresAt).toISOString()})`);
+          resolve(token);
+        });
+    });
+  })();
+  tokenLocks.set(cfg.id, p);
+  try { return await p; } finally { tokenLocks.delete(cfg.id); }
+}
+
+function invalidateToken(cfg) { tokenCache.delete(cfg.id); }
+
+function buildSqlcmdArgs(cfg, extraArgs = [], opts = {}) {
   const args = ['-S', cfg.server];
   switch (cfg.auth) {
     case 'windows': args.push('-E'); break;
     case 'sqlauth': args.push('-U', cfg.user, '-P', cfg.password); break;
     case 'azuread-integrated':
-      // Use go-sqlcmd with ActiveDirectoryIntegrated for silent auth with the
-      // Windows-connected Entra account (no browser popup, no re-prompts).
       args.push('--authentication-method=ActiveDirectoryIntegrated');
       if (cfg.user) args.push('-U', cfg.user);
       break;
     case 'azuread-password': args.push('-G', '-U', cfg.user, '-P', cfg.password); break;
     case 'azuread-interactive':
-      args.push('--authentication-method=ActiveDirectoryInteractive');
-      if (cfg.user) args.push('-U', cfg.user);
+      if (opts.useAccessToken) {
+        // Token supplied via SQLCMDACCESSTOKEN env var - no prompt, no user needed
+        args.push('--authentication-method=ActiveDirectoryAccessToken');
+      } else {
+        args.push('--authentication-method=ActiveDirectoryInteractive');
+        if (cfg.user) args.push('-U', cfg.user);
+      }
       break;
     default: args.push('-E');
   }
@@ -484,29 +560,45 @@ async function ensureSqlFile() {
 }
 let sqlPaths = null;
 
-// Run a sqlcmd script, return parsed JSON (or throw)
+// Run a sqlcmd script, return parsed JSON (or throw).
+// For Entra Interactive auth, acquires an access token once (cached) so the
+// browser prompt only appears the first time — not on every collection.
 async function runSqlcmdJson(cfg, scriptPath, tag, timeoutSec) {
   const outFile = path.join(TMP_DIR, `${tag}-${cfg.id}.out`);
+
+  let accessToken = null;
+  if (cfg.auth === 'azuread-interactive') {
+    accessToken = await acquireEntraToken(cfg);
+  }
+
   const args = buildSqlcmdArgs(cfg, [
     '-l', '10', '-t', String(timeoutSec),
     '-y', '0', '-Y', '0',
     '-w', '65535',
     '-i', scriptPath, '-o', outFile,
-  ]);
-  await new Promise((resolve, reject) => {
-    execFile(pickSqlcmd(cfg), args, { timeout: (timeoutSec + 5) * 1000, windowsHide: true, encoding: 'utf8' },
-      (err, stdout, stderr) => {
-        if (err) return reject(new Error(`sqlcmd ${tag} failed: ${err.message}\nSTDERR: ${(stderr||'').slice(0,300)}`));
-        resolve();
-      });
-  });
+  ], { useAccessToken: !!accessToken });
+
+  const env = { ...process.env };
+  if (accessToken) env.SQLCMDACCESSTOKEN = accessToken;
+
+  try {
+    await new Promise((resolve, reject) => {
+      execFile(pickSqlcmd(cfg), args, { timeout: (timeoutSec + 5) * 1000, windowsHide: true, encoding: 'utf8', env },
+        (err, stdout, stderr) => {
+          if (err) return reject(new Error(`sqlcmd ${tag} failed: ${err.message}\nSTDERR: ${(stderr||'').slice(0,400)}`));
+          resolve();
+        });
+    });
+  } catch (e) {
+    // If token was rejected, invalidate cache so next call re-prompts
+    if (accessToken && /token|authenticat|expire/i.test(e.message)) invalidateToken(cfg);
+    throw e;
+  }
+
   const raw = await readFile(outFile, 'utf8');
   const firstBrace = Math.min(...[raw.indexOf('{'), raw.indexOf('[')].filter(i => i >= 0));
   if (firstBrace < 0) throw new Error(`sqlcmd ${tag} returned no JSON: ${raw.slice(0,200)}`);
   let trimmed = raw.slice(firstBrace).trim();
-  // go-sqlcmd wraps long output at ~2000 chars — strip embedded newlines that
-  // land inside string literals. Only strip \r\n (Windows line wrapping); real
-  // newlines inside JSON string values are already escaped as \n.
   const strippedOnce = trimmed.replace(/\r?\n/g, '');
   try {
     return JSON.parse(trimmed);
@@ -575,9 +667,12 @@ async function collectFor(cfg) {
 }
 
 async function probeEngineEdition(cfg) {
-  const args = buildSqlcmdArgs(cfg, ['-l','10','-t','15','-h','-1','-W','-Q','SELECT CAST(SERVERPROPERTY(\'EngineEdition\') AS INT) AS e']);
+  let accessToken = null;
+  if (cfg.auth === 'azuread-interactive') accessToken = await acquireEntraToken(cfg);
+  const args = buildSqlcmdArgs(cfg, ['-l','10','-t','15','-h','-1','-W','-Q','SELECT CAST(SERVERPROPERTY(\'EngineEdition\') AS INT) AS e'], { useAccessToken: !!accessToken });
+  const env = { ...process.env }; if (accessToken) env.SQLCMDACCESSTOKEN = accessToken;
   return new Promise((resolve, reject) => {
-    execFile(pickSqlcmd(cfg), args, { timeout: 20000, windowsHide: true, encoding: 'utf8' },
+    execFile(pickSqlcmd(cfg), args, { timeout: 20000, windowsHide: true, encoding: 'utf8', env },
       (err, stdout) => {
         if (err) return reject(err);
         const m = stdout.match(/(\d+)/);
@@ -587,15 +682,21 @@ async function probeEngineEdition(cfg) {
 }
 
 async function testConnection(cfg) {
+  let accessToken = null;
+  if (cfg.auth === 'azuread-interactive') {
+    // For test connection, allow the initial popup to happen if no token cached
+    try { accessToken = await acquireEntraToken(cfg); }
+    catch (e) { return { ok: false, error: 'Token acquisition failed: ' + e.message.slice(0,400) }; }
+  }
   const args = buildSqlcmdArgs(cfg, [
     '-l', '60', '-t', '60',
     '-h', '-1',
     '-Q', 'SELECT 1',
-  ]);
-  // For MFA browser popup we cannot hide the window
-  const needsUi = cfg.auth === 'azuread-interactive';
+  ], { useAccessToken: !!accessToken });
+  const env = { ...process.env }; if (accessToken) env.SQLCMDACCESSTOKEN = accessToken;
+  const needsUi = cfg.auth === 'azuread-interactive' && !accessToken;
   return new Promise((resolve) => {
-    execFile(pickSqlcmd(cfg), args, { timeout: needsUi ? 180000 : 30000, windowsHide: !needsUi, encoding: 'utf8' },
+    execFile(pickSqlcmd(cfg), args, { timeout: needsUi ? 180000 : 30000, windowsHide: !needsUi, encoding: 'utf8', env },
       (err, stdout, stderr) => {
         if (err) {
           const parts = [];
@@ -745,9 +846,12 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
       const detailFile = path.join(TMP_DIR, `detail-${cfg.id}-${qid}.out`);
       const detailSql = path.join(TMP_DIR, `detail-${cfg.id}-${qid}.sql`);
       await writeFile(detailSql, sql, 'utf8');
+      let detailToken = null;
+      if (cfg.auth === 'azuread-interactive') detailToken = await acquireEntraToken(cfg);
       await new Promise((resolve, reject) => {
-        const args = buildSqlcmdArgs(cfg, ['-l', '10', '-t', '30', '-y', '0', '-Y', '0', '-i', detailSql, '-o', detailFile]);
-        execFile(pickSqlcmd(cfg), args, { timeout: 40000, windowsHide: true, encoding: 'utf8' },
+        const args = buildSqlcmdArgs(cfg, ['-l', '10', '-t', '30', '-y', '0', '-Y', '0', '-i', detailSql, '-o', detailFile], { useAccessToken: !!detailToken });
+        const env = { ...process.env }; if (detailToken) env.SQLCMDACCESSTOKEN = detailToken;
+        execFile(pickSqlcmd(cfg), args, { timeout: 40000, windowsHide: true, encoding: 'utf8', env },
           (err, stdout, stderr) => err ? reject(new Error(stderr||err.message)) : resolve());
       });
       const raw = await readFile(detailFile, 'utf8');
