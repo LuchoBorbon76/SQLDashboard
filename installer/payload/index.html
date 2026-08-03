@@ -195,9 +195,26 @@ tr:hover td{background:var(--cp-surface-soft);}
 .skeleton{background:linear-gradient(90deg,var(--cp-surface-soft) 0%,var(--cp-border) 50%,var(--cp-surface-soft) 100%);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:6px;height:24px;}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 /* Modal */
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;animation:mb-fade 0.18s ease-out;}
 .modal-backdrop.show{display:flex;}
-.modal{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,0.3);}
+.modal{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,0.3);animation:m-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);}
+@keyframes mb-fade{from{opacity:0}to{opacity:1}}
+@keyframes m-pop{from{opacity:0;transform:translateY(8px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* Beautified confirm modal */
+.confirm-modal{text-align:center;padding:32px 28px 24px;border-radius:20px;position:relative;overflow:hidden;}
+.confirm-modal::before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--cp-accent),var(--cp-warning),var(--cp-danger));opacity:0.9;}
+.confirm-modal.destructive::before{background:linear-gradient(90deg,#f59e0b,var(--cp-danger),#7c1d1d);}
+.confirm-icon{width:64px;height:64px;margin:6px auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;background:rgba(220,38,38,0.12);color:var(--cp-danger);box-shadow:0 0 0 6px rgba(220,38,38,0.05);animation:c-pulse 2s ease-in-out infinite;}
+.confirm-modal:not(.destructive) .confirm-icon{background:rgba(14,165,233,0.12);color:var(--cp-accent);box-shadow:0 0 0 6px rgba(14,165,233,0.05);}
+@keyframes c-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
+.confirm-modal h2{font-size:20px;font-weight:600;margin:0 0 8px;letter-spacing:-0.01em;}
+.confirm-modal .sub{font-size:13.5px;line-height:1.55;color:var(--cp-text-secondary);margin:0 4px 4px;text-align:center;}
+.confirm-modal .actions{justify-content:center;gap:10px;}
+.confirm-modal .actions .btn{padding:10px 22px;font-size:13px;border-radius:10px;min-width:100px;}
+.confirm-modal .actions .btn.danger{box-shadow:0 4px 12px rgba(220,38,38,0.35);}
+.confirm-modal .actions .btn.danger:hover{box-shadow:0 6px 16px rgba(220,38,38,0.5);transform:translateY(-1px);}
+.confirm-modal .actions .btn{transition:all 0.15s ease;}
 .modal h2{margin:0 0 4px;font-size:18px;font-weight:600;}
 .modal .sub{color:var(--cp-text-muted);font-size:12px;margin-bottom:16px;}
 .field{margin-bottom:14px;}
@@ -409,10 +426,11 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
 
 <!-- Confirm modal (themed replacement for browser confirm()) -->
 <div class="modal-backdrop" id="confirm-backdrop">
-  <div class="modal" style="max-width:440px;">
+  <div class="modal confirm-modal" style="max-width:460px;">
+    <div class="confirm-icon" id="confirm-icon">⚠</div>
     <h2 id="confirm-title">Confirm</h2>
     <div class="sub" id="confirm-message">Are you sure?</div>
-    <div class="actions" style="margin-top:20px;">
+    <div class="actions" style="margin-top:24px;">
       <button class="btn ghost" id="confirm-cancel">Cancel</button>
       <button class="btn danger" id="confirm-ok">Delete</button>
     </div>
@@ -662,11 +680,18 @@ const THEME_LABELS = {
   'nord':'Nord','highcontrast':'High Contrast'
 };
 // Themed confirm dialog — returns Promise<boolean>
-function confirmDialog(title, message, okLabel){
+function confirmDialog(title, message, okLabel, opts){
   return new Promise((resolve)=>{
+    const options = opts || {};
     el('confirm-title').textContent = title;
     el('confirm-message').textContent = message || '';
     el('confirm-ok').textContent = okLabel || 'Delete';
+    const modal = document.querySelector('.confirm-modal');
+    const iconEl = el('confirm-icon');
+    const destructive = options.destructive !== false; // default: destructive
+    modal.classList.toggle('destructive', destructive);
+    iconEl.textContent = options.icon || (destructive ? '⚠' : 'ℹ');
+    el('confirm-ok').className = 'btn ' + (destructive ? 'danger' : '');
     const bd = el('confirm-backdrop');
     bd.classList.add('show');
     let downTarget = null;
@@ -810,7 +835,8 @@ el('exit-btn').addEventListener('click', async () => {
   const ok = await confirmDialog(
     'Exit dashboard?',
     'This stops the local Node server (http://sql-dashboard:8765) and closes this tab. You will need to relaunch it from the Start Menu / desktop shortcut to view the dashboard again.',
-    'Exit'
+    'Stop & Exit',
+    { icon: '⏻', destructive: true }
   );
   if (!ok) return;
   try {
