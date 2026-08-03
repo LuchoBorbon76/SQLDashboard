@@ -62,6 +62,8 @@ body{margin:0;background:var(--cp-bg);color:var(--cp-text);font-family:"Segoe UI
 .sidebar-footer{padding-top:10px;border-top:1px solid var(--cp-border);font-size:10px;color:var(--cp-text-soft);line-height:1.4;text-align:center;}
 .sidebar-footer .sig{color:var(--cp-accent);font-weight:600;}
 .sidebar-footer .disclaimer{margin-top:6px;font-size:9px;color:var(--cp-text-soft);opacity:0.85;}
+.sidebar-footer .exit-link{display:block;width:100%;background:transparent;border:1px solid rgba(220,38,38,0.3);color:var(--cp-danger);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:10px;font-weight:500;}
+.sidebar-footer .exit-link:hover{background:rgba(220,38,38,0.1);border-color:var(--cp-danger);}
 .sidebar h1{margin:0 0 4px;font-size:16px;font-weight:600;letter-spacing:-0.01em;}
 .sidebar .accent-dot{display:inline-block;width:8px;height:8px;background:var(--cp-accent);border-radius:50%;margin-right:8px;vertical-align:middle;animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
@@ -95,8 +97,6 @@ header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
 .controls .tb{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:38px;padding:0 10px;font-size:13px;line-height:1;flex:0 0 auto;white-space:nowrap;}
 .controls .tb .ic{font-size:16px;line-height:1;}
 .controls .tb.icon-only{padding:0;width:38px;}
-.controls .tb.danger{color:var(--cp-danger);border-color:rgba(220,38,38,0.35);}
-.controls .tb.danger:hover{background:rgba(220,38,38,0.12);}
 .controls .tb .cnt-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--cp-danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;display:none;align-items:center;justify-content:center;line-height:1;box-shadow:0 0 0 2px var(--cp-surface);}
 .controls .tb .cnt-badge.show{display:inline-flex;}
 .controls-row2{display:flex;align-items:center;justify-content:center;gap:14px;font-size:12px;color:var(--cp-text-muted);}
@@ -300,6 +300,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       </div>
     </div>
     <div class="sidebar-footer">
+      <button class="exit-link" id="exit-btn" title="Stop the dashboard server and close this tab">⏻ Stop server &amp; exit</button>
       Created by <span class="sig">Luis Fernando Borbon</span><br>
       <span style="opacity:0.7;">© 2026 · v1.0</span>
       <div class="disclaimer">
@@ -335,8 +336,6 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
           <button class="btn ghost tb" id="counters-btn" title="Manage custom counters"><span class="ic">🎯</span><span>Counters</span></button>
           <button class="btn ghost tb" id="snapshot-btn" title="Save current sample as baseline"><span class="ic">📸</span><span>Snapshot</span></button>
           <button class="btn ghost tb" id="export-btn" title="Download current metrics as JSON"><span class="ic">⬇</span><span>Export</span></button>
-          <div style="flex:1;"></div>
-          <button class="btn ghost tb danger" id="exit-btn" title="Stop the dashboard server and close this tab"><span class="ic">⏻</span><span>Exit</span></button>
         </div>
         <div class="controls-row2">
           <button class="btn primary" id="refresh-btn">Refresh now</button>
