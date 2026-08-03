@@ -822,6 +822,81 @@ function publicView(cfg) {
   return { ...rest, hasPassword: !!(password || passwordEnc) };
 }
 
+// ==============================
+// Ollama proxy for "Ask AI" feature
+// ==============================
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+async function ollamaListModels() {
+  const r = await fetch(OLLAMA_URL + '/api/tags');
+  if (!r.ok) throw new Error('Ollama tags HTTP ' + r.status);
+  const j = await r.json();
+  // Exclude embedding-only models
+  return (j.models || []).map(m => m.name).filter(n => !n.includes('embed'));
+}
+async function ollamaChat({ model, system, user, timeoutMs = 180000 }) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(OLLAMA_URL + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model, stream: false,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        options: { temperature: 0.2, num_ctx: 8192 },
+      }),
+      signal: ctrl.signal,
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error('Ollama HTTP ' + r.status + ': ' + txt.slice(0, 300));
+    }
+    const j = await r.json();
+    return j.message?.content || '';
+  } finally { clearTimeout(t); }
+}
+function buildAiContext(data, history) {
+  // Compact context: instance summary + top waits + top queries + custom counter values
+  const i = data.instance || {};
+  const waits = (data.waits || []).slice(0, 8).map(w => ({
+    type: w.wait_type,
+    wait_s: Math.round(Number(w.wait_time_s) || 0),
+    signal_s: Math.round(Number(w.signal_wait_s) || 0),
+    count: Number(w.waiting_tasks_count) || 0,
+  }));
+  const topq = (data.top_queries || []).slice(0, 8).map(q => ({
+    db: q.db_name, qid: q.query_id, execs: q.execution_count,
+    avg_cpu_ms: q.avg_cpu_ms, avg_dur_ms: q.avg_duration_ms, avg_reads: q.avg_logical_reads,
+    text: (q.query_text || '').slice(0, 400),
+  }));
+  const missing = (data.missing_indexes || []).slice(0, 5);
+  const files = (data.file_io || []).slice(0, 8);
+  const custom = (data.custom_counters || []).map(c => ({ name: c.name, value: c.value, unit: c.unit || '' }));
+  const recent = (history || []).slice(-30);
+  return {
+    engine: data.engine,
+    engine_edition: data.engine_edition,
+    instance: {
+      uptime_min: i.uptime_min, cpu_count: i.cpu_count,
+      user_sessions: i.user_sessions, active_requests: i.active_requests, blocked_requests: i.blocked_requests,
+      page_life_expectancy: i.page_life_expectancy,
+      target_memory_mb: i.target_memory_mb, memory_in_use_mb: i.memory_in_use_mb,
+      avg_cpu_percent: i.avg_cpu_percent, avg_memory_percent: i.avg_memory_percent,
+      avg_data_io_percent: i.avg_data_io_percent, avg_log_write_percent: i.avg_log_write_percent,
+      product_version: i.product_version, edition: i.edition,
+    },
+    top_waits: waits,
+    top_queries: topq,
+    missing_indexes: missing,
+    file_io: files,
+    custom_counters: custom,
+    recent_history_last_30: recent,
+  };
+}
+
 // ---------- HTTP server ----------
 const server = http.createServer(async (req, res) => {
   try {
@@ -1097,19 +1172,68 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
         const result = await runCustomCounter(cfg, { id: 'test-' + Date.now(), sql: body.sql });
         return json(res, 200, result);
       } catch (e) {
-        return json(res, 400, { error: e.message.slice(0, 400) });
-      }
-    }
+    return json(res, 400, { error: e.message.slice(0, 400) });
+  }
+}
 
-    // ==============================
-    // History (trend samples)
-    // ==============================
+// ==============================
+// History (trend samples)
+// ==============================
     if (p === '/api/history' && req.method === 'GET') {
       const id = url.searchParams.get('serverId');
       const limit = Math.min(720, Math.max(1, parseInt(url.searchParams.get('limit')||'120', 10)));
       if (!id) return json(res, 400, { error: 'serverId required' });
       const arr = await loadHistory(id);
       return json(res, 200, arr.slice(-limit));
+    }
+
+    // ==============================
+    // AI: list Ollama models + ask a question about a server
+    // ==============================
+    if (p === '/api/ai/models' && req.method === 'GET') {
+      try {
+        const models = await ollamaListModels();
+        return json(res, 200, { models, ollamaUrl: OLLAMA_URL });
+      } catch (e) {
+        return json(res, 400, { error: 'Ollama not reachable at ' + OLLAMA_URL + ': ' + e.message.slice(0, 300) });
+      }
+    }
+    if (p === '/api/ai/ask' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!body.serverId || !body.question) return json(res, 400, { error: 'serverId and question required' });
+      const list = await loadServers();
+      const s = list.find(x => x.id === body.serverId);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      const model = body.model || 'llama3.1:8b';
+      const question = String(body.question).slice(0, 4000);
+      // Use cached data if fresh, else collect
+      let data;
+      const c = cache.get(s.id);
+      if (c && Date.now() - c.at < 60000) data = c.data;
+      else {
+        try {
+          const cfg = await resolveServer(s);
+          data = await collectFor(cfg);
+          cache.set(s.id, { at: Date.now(), data });
+        } catch (e) { return json(res, 400, { error: 'Failed to collect metrics: ' + e.message.slice(0, 300) }); }
+      }
+      const history = await loadHistory(s.id);
+      const ctx = buildAiContext(data, history);
+      const system = `You are a senior SQL Server DBA assistant. You are given a JSON snapshot of a live SQL Server instance (waits, top queries, missing indexes, resource pressure, and a short history of samples).
+
+Rules:
+- Ground every claim in the JSON data. If the data does not support a claim, say so.
+- Prefer specific, actionable recommendations (e.g. "add index on X.Y", "review the query with query_id=42 that averages 320ms CPU").
+- Wait-percentage interpretation follows the Paul Randal / Microsoft Learn methodology (signal wait % > 25 = CPU pressure; PAGEIOLATCH dominant = IO bottleneck; WRITELOG dominant = log disk; RESOURCE_SEMAPHORE = memory grants; LCK_M_* = blocking).
+- Keep answers concise. Use short markdown sections and bullet lists. Avoid long preambles.
+- Never invent DMV rows, index names, or query text that are not in the JSON.`;
+      const userMsg = `Server: ${s.name} (${s.server}), engine=${data.engine || '?'}\n\nUser question:\n${question}\n\nMetrics JSON (compact):\n\`\`\`json\n${JSON.stringify(ctx)}\n\`\`\``;
+      try {
+        const answer = await ollamaChat({ model, system, user: userMsg });
+        return json(res, 200, { answer, model, contextBytes: JSON.stringify(ctx).length });
+      } catch (e) {
+        return json(res, 400, { error: 'AI call failed: ' + e.message.slice(0, 500) });
+      }
     }
 
     // ==============================

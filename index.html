@@ -323,6 +323,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
           </select>
         </label>
         <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">⏸ Pause</button>
+        <button class="btn ghost" id="ai-btn" title="Ask an AI (local Ollama) about this server">🤖 Ask AI</button>
         <button class="btn ghost" id="alerts-btn" title="View alert history and active issues"><span id="alerts-count-badge" style="display:none;background:var(--cp-danger);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;margin-right:4px;">0</span>🔔 Alerts</button>
         <button class="btn ghost" id="counters-btn" title="Manage custom counters">🎯 Counters</button>
         <button class="btn ghost" id="snapshot-btn" title="Save the current sample as a baseline to compare against">📸 Snapshot</button>
@@ -563,6 +564,45 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     <div class="actions">
       <button class="btn ghost" id="alerts-close">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Ask AI modal -->
+<div class="modal-backdrop" id="ai-backdrop">
+  <div class="modal modal-lg">
+    <h2>🤖 Ask AI</h2>
+    <div class="sub">Sends the current metrics + a compact history sample from the active server to your local Ollama instance. Nothing leaves this machine.</div>
+    <div id="ai-status" style="font-size:12px;color:var(--cp-text-muted);margin-bottom:8px;"></div>
+
+    <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr;gap:8px;align-items:end;">
+      <div>
+        <label>Model</label>
+        <select id="ai-model" style="width:100%;"><option value="">Loading…</option></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button type="button" class="btn ghost" id="ai-refresh-models" style="width:100%;">Reload models</button>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Your question</label>
+      <textarea id="ai-question" rows="3" style="width:100%;padding:8px;background:var(--cp-bg);color:var(--cp-text);border:1px solid var(--cp-border);border-radius:8px;" placeholder="What's the biggest performance problem right now?"></textarea>
+      <div class="hint">Suggestions:
+        <a href="#" class="ai-suggest">What's the biggest performance issue right now?</a> ·
+        <a href="#" class="ai-suggest">Analyze the top waits and recommend action</a> ·
+        <a href="#" class="ai-suggest">Which of the top queries should I tune first, and why?</a> ·
+        <a href="#" class="ai-suggest">Are the missing indexes worth creating? Rank them.</a> ·
+        <a href="#" class="ai-suggest">Summarize the health of this server in 5 bullets</a>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:8px;">
+      <button class="btn ghost" id="ai-close">Close</button>
+      <button class="btn" id="ai-ask">Ask</button>
+    </div>
+
+    <div id="ai-answer" style="display:none;margin-top:14px;padding:12px;background:var(--cp-bg);border:1px solid var(--cp-border);border-radius:8px;max-height:50vh;overflow-y:auto;white-space:pre-wrap;font-size:13px;line-height:1.5;"></div>
   </div>
 </div>
 
@@ -835,6 +875,99 @@ function renderAlertsBody(){
     }).join('');
     el('alerts-body').innerHTML = '<div style="max-height:400px;overflow-y:auto;">'+rows+'</div>';
   }
+}
+
+// -------------------------------------------------------
+// Ask AI (local Ollama)
+// -------------------------------------------------------
+el('ai-btn').addEventListener('click', openAiModal);
+el('ai-close').addEventListener('click', () => el('ai-backdrop').classList.remove('show'));
+el('ai-refresh-models').addEventListener('click', loadAiModels);
+el('ai-ask').addEventListener('click', askAi);
+document.querySelectorAll('.ai-suggest').forEach(a => {
+  a.addEventListener('click', (e) => { e.preventDefault(); el('ai-question').value = a.textContent; el('ai-question').focus(); });
+});
+let aiModalMouseDownTarget = null;
+el('ai-backdrop').addEventListener('mousedown', (e)=>{ aiModalMouseDownTarget = e.target; });
+el('ai-backdrop').addEventListener('mouseup', (e)=>{
+  if(aiModalMouseDownTarget && aiModalMouseDownTarget.id==='ai-backdrop' && e.target.id==='ai-backdrop') el('ai-backdrop').classList.remove('show');
+  aiModalMouseDownTarget = null;
+});
+
+async function openAiModal(){
+  if (!activeServerId) { alert('Select a server first.'); return; }
+  el('ai-backdrop').classList.add('show');
+  el('ai-answer').style.display = 'none';
+  el('ai-answer').innerHTML = '';
+  if (!el('ai-model').dataset.loaded) await loadAiModels();
+}
+async function loadAiModels(){
+  const sel = el('ai-model');
+  sel.innerHTML = '<option value="">Loading…</option>';
+  el('ai-status').textContent = 'Checking Ollama…';
+  try {
+    const r = await fetch('/api/ai/models');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    const models = data.models || [];
+    if (models.length === 0) {
+      sel.innerHTML = '<option value="">No models installed</option>';
+      el('ai-status').innerHTML = `<span style="color:var(--cp-danger)">Ollama has no chat models. Run <code>ollama pull llama3.1:8b</code>.</span>`;
+      return;
+    }
+    const saved = localStorage.getItem('ai-model') || 'llama3.1:8b';
+    sel.innerHTML = models.map(m => `<option value="${esc(m)}" ${m===saved?'selected':''}>${esc(m)}</option>`).join('');
+    if (!models.includes(saved)) sel.value = models[0];
+    el('ai-model').dataset.loaded = '1';
+    el('ai-status').innerHTML = `<span style="color:var(--cp-success)">✓ Ollama connected · ${models.length} model${models.length!==1?'s':''}</span> · <code style="font-size:11px;">${esc(data.ollamaUrl||'')}</code>`;
+    sel.addEventListener('change', () => localStorage.setItem('ai-model', sel.value), { once: true });
+  } catch (e) {
+    sel.innerHTML = '<option value="">Ollama unreachable</option>';
+    el('ai-status').innerHTML = `<span style="color:var(--cp-danger)">✗ ${esc(e.message)}</span>`;
+  }
+}
+async function askAi(){
+  const model = el('ai-model').value;
+  const question = el('ai-question').value.trim();
+  if (!model) { alert('Pick a model first.'); return; }
+  if (!question) { alert('Enter a question.'); return; }
+  localStorage.setItem('ai-model', model);
+  const btn = el('ai-ask'); btn.disabled = true; btn.textContent = 'Thinking…';
+  el('ai-answer').style.display = 'block';
+  el('ai-answer').textContent = 'Sending metrics + question to ' + model + '…';
+  const started = Date.now();
+  try {
+    const r = await fetch('/api/ai/ask', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ serverId: activeServerId, question, model }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    const secs = ((Date.now() - started)/1000).toFixed(1);
+    // Very lightweight markdown-ish rendering: escape then convert bold/italic/code/lists/newlines
+    const html = renderSimpleMd(data.answer || '(empty response)');
+    el('ai-answer').innerHTML = html + `<div style="margin-top:10px;font-size:11px;color:var(--cp-text-muted);border-top:1px solid var(--cp-border);padding-top:6px;">model: ${esc(data.model)} · context: ${fmtInt(data.contextBytes||0)} bytes · ${secs}s</div>`;
+  } catch (e) {
+    el('ai-answer').innerHTML = `<span style="color:var(--cp-danger)">Failed: ${esc(e.message)}</span>`;
+  } finally { btn.disabled = false; btn.textContent = 'Ask'; }
+}
+function renderSimpleMd(text) {
+  let s = esc(text);
+  // Fenced code blocks
+  s = s.replace(/```([\s\S]*?)```/g, (m, code) => `<pre style="background:var(--cp-surface);padding:8px;border-radius:6px;overflow-x:auto;font-size:12px;">${code}</pre>`);
+  // Inline code
+  s = s.replace(/`([^`\n]+)`/g, '<code style="background:var(--cp-surface);padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>');
+  // Bold + italic
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  s = s.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<i>$1</i>');
+  // Headings
+  s = s.replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 4px;">$1</h4>');
+  s = s.replace(/^## (.+)$/gm, '<h3 style="margin:14px 0 6px;">$1</h3>');
+  s = s.replace(/^# (.+)$/gm, '<h2 style="margin:16px 0 8px;">$1</h2>');
+  // Bullets
+  s = s.replace(/^(?:[-*] )(.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>[\s\S]+?<\/li>)(?!\s*<li>)/g, '<ul style="margin:6px 0;padding-left:22px;">$1</ul>');
+  return s;
 }
 el('counters-close').addEventListener('click', () => el('counters-backdrop').classList.remove('show'));
 let ccModalMouseDownTarget = null;
