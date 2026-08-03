@@ -95,6 +95,8 @@ header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
 .controls .tb{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:38px;padding:0 10px;font-size:13px;line-height:1;flex:0 0 auto;white-space:nowrap;}
 .controls .tb .ic{font-size:16px;line-height:1;}
 .controls .tb.icon-only{padding:0;width:38px;}
+.controls .tb.danger{color:var(--cp-danger);border-color:rgba(220,38,38,0.35);}
+.controls .tb.danger:hover{background:rgba(220,38,38,0.12);}
 .controls .tb .cnt-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--cp-danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;display:none;align-items:center;justify-content:center;line-height:1;box-shadow:0 0 0 2px var(--cp-surface);}
 .controls .tb .cnt-badge.show{display:inline-flex;}
 .controls-row2{display:flex;align-items:center;justify-content:center;gap:14px;font-size:12px;color:var(--cp-text-muted);}
@@ -333,6 +335,8 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
           <button class="btn ghost tb" id="counters-btn" title="Manage custom counters"><span class="ic">🎯</span><span>Counters</span></button>
           <button class="btn ghost tb" id="snapshot-btn" title="Save current sample as baseline"><span class="ic">📸</span><span>Snapshot</span></button>
           <button class="btn ghost tb" id="export-btn" title="Download current metrics as JSON"><span class="ic">⬇</span><span>Export</span></button>
+          <div style="flex:1;"></div>
+          <button class="btn ghost tb danger" id="exit-btn" title="Stop the dashboard server and close this tab"><span class="ic">⏻</span><span>Exit</span></button>
         </div>
         <div class="controls-row2">
           <button class="btn primary" id="refresh-btn">Refresh now</button>
@@ -797,6 +801,34 @@ el('export-btn').addEventListener('click', () => {
   a.download = `${s.name.replace(/[^A-Za-z0-9._-]/g,'_')}-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+});
+
+// -------------------------------------------------------
+// Exit: shut down the dashboard server and close the tab
+// -------------------------------------------------------
+el('exit-btn').addEventListener('click', async () => {
+  const ok = await confirmDialog(
+    'Exit dashboard?',
+    'This stops the local Node server (http://sql-dashboard:8765) and closes this tab. You will need to relaunch it from the Start Menu / desktop shortcut to view the dashboard again.'
+  );
+  if (!ok) return;
+  try {
+    await fetch('/api/shutdown', { method: 'POST' });
+  } catch { /* server may have exited before response reaches us — that's fine */ }
+  // Try to close the tab. Modern browsers only allow window.close() on tabs
+  // opened via script; if it's blocked, show a friendly stopped-page.
+  setTimeout(() => {
+    window.open('', '_self');
+    window.close();
+    // Fallback: replace the page with a stopped message
+    document.body.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:Segoe UI,sans-serif;color:#e6edf3;background:#0d1117;">
+      <div style="text-align:center;">
+        <div style="font-size:48px;">⏻</div>
+        <h1 style="margin:8px 0;">Dashboard stopped</h1>
+        <p style="color:#8b949e;">The local server has been shut down. You can close this tab.</p>
+      </div>
+    </div>`;
+  }, 400);
 });
 
 // -------------------------------------------------------

@@ -1188,6 +1188,21 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
     }
 
     // ==============================
+    // Shutdown: stop the running dashboard server
+    // ==============================
+    if (p === '/api/shutdown' && req.method === 'POST') {
+      json(res, 200, { ok: true, message: 'Shutting down…' });
+      console.log('Shutdown requested via /api/shutdown');
+      // Give the response a moment to flush, then close the HTTP server + exit
+      setTimeout(() => {
+        try { server.close(() => process.exit(0)); } catch { process.exit(0); }
+        // Hard fallback if close() hangs on live sockets
+        setTimeout(() => process.exit(0), 1500);
+      }, 250);
+      return;
+    }
+
+    // ==============================
     // AI: list Ollama models + ask a question about a server
     // ==============================
     if (p === '/api/ai/models' && req.method === 'GET') {
