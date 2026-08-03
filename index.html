@@ -89,7 +89,11 @@ body{margin:0;background:var(--cp-bg);color:var(--cp-text);font-family:"Segoe UI
 header.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;margin-bottom:16px;gap:16px;flex-wrap:wrap;}
 header.topbar h2{margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em;}
 header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
-.controls{display:flex;align-items:center;gap:10px;}
+.controls{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;}
+.controls .tb{position:relative;display:inline-flex;align-items:center;justify-content:center;width:38px;height:36px;padding:0;font-size:16px;line-height:1;flex:0 0 auto;}
+.controls .tb.wide{width:auto;padding:0 12px;}
+.controls .tb .cnt-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--cp-danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;display:none;align-items:center;justify-content:center;line-height:1;box-shadow:0 0 0 2px var(--cp-surface);}
+.controls .tb .cnt-badge.show{display:inline-flex;}
 .live-indicator{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--cp-text-muted);}
 .live-dot{width:8px;height:8px;border-radius:50%;background:var(--cp-success);box-shadow:0 0 0 0 var(--cp-success);animation:live-pulse 1.5s infinite;}
 .live-dot.stale{background:var(--cp-warning);animation:none;}
@@ -322,13 +326,13 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
             <option value="1800">30 min</option>
           </select>
         </label>
-        <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">⏸ Pause</button>
-        <button class="btn ghost" id="ai-btn" title="Ask an AI (local Ollama) about this server">🤖 Ask AI</button>
-        <button class="btn ghost" id="alerts-btn" title="View alert history and active issues"><span id="alerts-count-badge" style="display:none;background:var(--cp-danger);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;margin-right:4px;">0</span>🔔 Alerts</button>
-        <button class="btn ghost" id="counters-btn" title="Manage custom counters">🎯 Counters</button>
-        <button class="btn ghost" id="snapshot-btn" title="Save the current sample as a baseline to compare against">📸 Snapshot</button>
-        <button class="btn ghost" id="export-btn" title="Download current metrics as JSON">⬇ Export</button>
-        <button class="btn" id="refresh-btn">Refresh now</button>
+        <button class="btn ghost tb" id="pause-btn" title="Pause auto-refresh" aria-label="Pause">⏸</button>
+        <button class="btn ghost tb" id="ai-btn" title="Ask AI (local Ollama) about this server" aria-label="Ask AI">🤖</button>
+        <button class="btn ghost tb" id="alerts-btn" title="Alerts" aria-label="Alerts">🔔<span id="alerts-count-badge" class="cnt-badge">0</span></button>
+        <button class="btn ghost tb" id="counters-btn" title="Manage custom counters" aria-label="Counters">🎯</button>
+        <button class="btn ghost tb" id="snapshot-btn" title="Save current sample as baseline" aria-label="Snapshot">📸</button>
+        <button class="btn ghost tb" id="export-btn" title="Download current metrics as JSON" aria-label="Export">⬇</button>
+        <button class="btn tb wide" id="refresh-btn" title="Refresh now">Refresh</button>
         <div class="live-indicator">
           <div class="live-dot" id="live-dot"></div>
           <div id="live-status">Loading…</div>
@@ -704,8 +708,8 @@ updateThemeUi();
 el('refresh-btn').addEventListener('click', ()=>{ countdown = 0; fetchMetrics(); });
 el('pause-btn').addEventListener('click', ()=>{
   paused = !paused;
-  el('pause-btn').textContent = paused ? '▶ Resume' : '⏸ Pause';
-  el('pause-btn').classList.toggle('ghost', !paused);
+  el('pause-btn').textContent = paused ? '▶' : '⏸';
+  el('pause-btn').title = paused ? 'Resume auto-refresh' : 'Pause auto-refresh';
   el('live-dot').classList.toggle('paused', paused);
   if(paused){ setStatus('paused','Paused'); }
   else { countdown = refreshSeconds; setStatus('ok','Resumed'); }
@@ -751,9 +755,11 @@ el('snapshot-btn').addEventListener('click', () => {
   if (!st || !st.data) { alert('No data yet.'); return; }
   st.snapshot = { data: st.data, at: Date.now() };
   localStorage.setItem('snapshot-'+activeServerId, JSON.stringify(st.snapshot));
-  el('snapshot-btn').textContent = '📸 Snapshot ✓';
-  setTimeout(() => { el('snapshot-btn').textContent = '📸 Snapshot'; }, 2000);
-  // Re-render with snapshot as prev for delta comparison
+  const btn = el('snapshot-btn');
+  const prev = btn.textContent;
+  btn.textContent = '✓';
+  btn.style.color = 'var(--cp-success)';
+  setTimeout(() => { btn.textContent = prev; btn.style.color = ''; }, 1500);
   render(st.data, st.snapshot.data);
 });
 el('export-btn').addEventListener('click', () => {
@@ -819,14 +825,19 @@ function recordAlertTransitions(serverId, health, prevHealth){
   updateAlertBadge();
 }
 function updateAlertBadge(){
-  if (!activeServerId) { el('alerts-count-badge').style.display = 'none'; return; }
+  const badge = el('alerts-count-badge');
+  if (!activeServerId) { badge.classList.remove('show'); return; }
   const st = serverState.get(activeServerId);
-  if (!st?.data) { el('alerts-count-badge').style.display = 'none'; return; }
+  if (!st?.data) { badge.classList.remove('show'); return; }
   const h = computeHealth(st.data);
   const n = h.critical.length + h.warning.length;
-  const badge = el('alerts-count-badge');
-  if (n > 0) { badge.textContent = n; badge.style.display = 'inline-block'; badge.style.background = h.critical.length ? 'var(--cp-danger)' : 'var(--cp-warning)'; }
-  else badge.style.display = 'none';
+  if (n > 0) {
+    badge.textContent = n;
+    badge.classList.add('show');
+    badge.style.background = h.critical.length ? 'var(--cp-danger)' : 'var(--cp-warning)';
+  } else {
+    badge.classList.remove('show');
+  }
 }
 
 function openAlertsModal(){
