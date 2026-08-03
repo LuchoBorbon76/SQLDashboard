@@ -257,7 +257,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       <div class="brand-tag">Multi-instance live monitoring</div>
     </div>
     <h3>Servers</h3>
-    <div class="server-list" id="server-list"><div class="empty" style="font-size:12px;">Loadingâ€¦</div></div>
+    <div class="server-list" id="server-list"><div class="empty" style="font-size:12px;">Loading…</div></div>
     <button class="add-btn" id="add-server-btn">+ Add server</button>
     <div class="theme-wrap" style="position:relative;">
       <button class="theme-btn" id="theme-btn" title="Choose theme">ðŸŽ¨ Theme
@@ -280,7 +280,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     </div>
     <div class="sidebar-footer">
       Created by <span class="sig">Luis Fernando Borbon</span><br>
-      <span style="opacity:0.7;">Â© 2026 Â· v1.0</span>
+      <span style="opacity:0.7;">© 2026 · v1.0</span>
       <div class="disclaimer">
         Provided <b>as-is</b>, without warranty of any kind.
         Not affiliated with or endorsed by Microsoft.
@@ -297,8 +297,8 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       </div>
       <div class="semaphore" id="semaphore" title="Click for details">
         <div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div>
-        <div class="label"><span class="l1">Health</span><span class="l2" id="health-label">â€¦</span></div>
-        <span class="caret">â–¾</span>
+        <div class="label"><span class="l1">Health</span><span class="l2" id="health-label">…</span></div>
+        <span class="caret">▾</span>
         <div class="health-popover" id="health-popover"></div>
       </div>
       <div class="controls">
@@ -317,7 +317,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
         <button class="btn" id="refresh-btn">Refresh now</button>
         <div class="live-indicator">
           <div class="live-dot" id="live-dot"></div>
-          <div id="live-status">Loadingâ€¦</div>
+          <div id="live-status">Loading…</div>
           <div class="countdown-ring">
             <svg width="38" height="38"><circle class="ring-bg" cx="19" cy="19" r="15"/><circle class="ring-fg" id="ring-fg" cx="19" cy="19" r="15" stroke-dasharray="94.25" stroke-dashoffset="0"/></svg>
             <div class="n" id="countdown">30</div>
@@ -327,11 +327,11 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     </header>
 
     <div class="error-banner" id="err"></div>
-    <div class="narrative" id="narrative">Select a server to view metricsâ€¦</div>
+    <div class="narrative" id="narrative">Select a server to view metrics…</div>
     <div class="kpi-grid" id="kpis"></div>
 
     <div class="grid three">
-      <div class="card"><h2>Top Waits</h2><div class="card-sub">Cumulative since instance start â€” where SQL Server spends its time</div><div id="waits"><div class="skeleton" style="height:200px"></div></div></div>
+      <div class="card"><h2>Top Waits</h2><div class="card-sub">Cumulative since instance start — where SQL Server spends its time</div><div id="waits"><div class="skeleton" style="height:200px"></div></div></div>
       <div class="card" id="buffer-card"><h2>Buffer Pool by Database</h2><div class="card-sub">RAM used for cached pages per DB</div><div class="donut" id="buffer-donut"><div class="skeleton" style="height:200px;width:100%"></div></div></div>
     </div>
 
@@ -387,7 +387,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
   <div class="modal">
     <h2>Add SQL Server</h2>
     <div class="sub">Test connection runs before saving. Credentials are stored locally in <code>servers.json</code>.</div>
-    <div class="warning-box"><b>âš  Note:</b> passwords are stored in plain text in servers.json on this machine. Prefer Windows or Entra ID Integrated auth when possible.</div>
+    <div class="warning-box"><b>⚠  Note:</b> passwords are stored in plain text in servers.json on this machine. Prefer Windows or Entra ID Integrated auth when possible.</div>
     <div class="field">
       <label>Display name</label>
       <input type="text" id="f-name" placeholder="Prod SQL West">
@@ -413,10 +413,10 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     </div>
     <div class="field" id="f-pw-field" style="display:none;">
       <label>Password</label>
-      <input type="password" id="f-pw" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢">
+      <input type="password" id="f-pw" placeholder="•••••••">
     </div>
     <div class="field">
-      <label>Database (optional â€” required for Azure SQL Database)</label>
+      <label>Database (optional — required for Azure SQL Database)</label>
       <input type="text" id="f-database" placeholder="master (default) or e.g. mydb">
       <div class="hint">Leave blank for on-prem. For Azure SQL Database, enter the specific database name.</div>
     </div>
@@ -509,7 +509,7 @@ updateThemeUi();
 el('refresh-btn').addEventListener('click', ()=>{ countdown = 0; fetchMetrics(); });
 el('pause-btn').addEventListener('click', ()=>{
   paused = !paused;
-  el('pause-btn').textContent = paused ? 'â–¶ Resume' : 'â¸ Pause';
+  el('pause-btn').textContent = paused ? '▶ Resume' : 'â¸ Pause';
   el('pause-btn').classList.toggle('ghost', !paused);
   el('live-dot').classList.toggle('paused', paused);
   if(paused){ setStatus('paused','Paused'); }
@@ -576,7 +576,7 @@ async function saveServer(){
   };
   if(!body.name || !body.server){ showModalErr('Name and server are required.'); return; }
   const saveBtn = el('modal-save');
-  saveBtn.disabled = true; saveBtn.textContent = 'Testing connectionâ€¦';
+  saveBtn.disabled = true; saveBtn.textContent = 'Testing connection…';
   try {
     const r = await fetch('/api/servers', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
@@ -614,7 +614,7 @@ function renderServerList(){
           <div class="icon">${esc(initials)}<div class="status-dot ${statusCls}"></div></div>
           <div class="body">
             <div class="name">${esc(s.name)}</div>
-            <div class="meta">${esc(s.server)} Â· ${authLabel}</div>
+            <div class="meta">${esc(s.server)} · ${authLabel}</div>
           </div>
           <button class="del" data-del="${esc(s.id)}" title="Remove">Ã—</button>
     </div>`;
@@ -662,10 +662,10 @@ function setActiveServer(id){
     // Instantly show cached snapshot from the last time this server was viewed
     render(st.data, st.prevData);
     const ageS = Math.round((Date.now() - st.lastFetchAt)/1000);
-    setStatus('stale', `Cached (${ageS}s old) Â· refreshingâ€¦`);
+    setStatus('stale', `Cached (${ageS}s old) · refreshing…`);
   } else {
     renderEmpty();
-    setStatus('ok','Loadingâ€¦');
+    setStatus('ok','Loading…');
   }
   fetchMetrics();
 }
@@ -685,7 +685,7 @@ function delta(cur, prev, invert=false){
   if(!isFinite(d) || d===0) return {cls:'same', txt:''};
   const positive = d > 0;
   const bad = invert ? !positive : positive;
-  const arrow = positive?'â–²':'â–¼';
+  const arrow = positive?'▲':'▼';
   return {cls: bad?'up':'down', txt: `${arrow} ${Math.abs(d).toLocaleString(undefined,{maximumFractionDigits:1})}`};
 }
 
@@ -693,7 +693,7 @@ async function fetchMetrics(){
   if(fetching || !activeServerId) return;
   fetching = true;
   const requestedId = activeServerId;
-  setStatus('ok','Refreshingâ€¦');
+  setStatus('ok','Refreshing…');
   try {
     const r = await fetch('/api/metrics?serverId='+encodeURIComponent(requestedId), {cache:'no-store'});
     const data = await r.json();
@@ -738,9 +738,9 @@ function computeHealth(DATA){
   const totalSignalS = waits.reduce((s,w)=>s + (Number(w.signal_wait_s)||0), 0);
 
   if (totalWaitS > 0) {
-    // Signal-wait percentage â€” proxy for CPU pressure (MS Learn threshold: >25% = pressure)
+    // Signal-wait percentage — proxy for CPU pressure (MS Learn threshold: >25% = pressure)
     const signalPct = (totalSignalS / totalWaitS) * 100;
-    if (signalPct >= 25) critical.push(`Signal wait ${signalPct.toFixed(1)}% (CPU pressure â‰¥25%)`);
+    if (signalPct >= 25) critical.push(`Signal wait ${signalPct.toFixed(1)}% (CPU pressure ≥25%)`);
     else if (signalPct >= 20) warning.push(`Signal wait ${signalPct.toFixed(1)}% (approaching CPU pressure)`);
 
     // Categorize top waits and check their dominance vs total
@@ -783,11 +783,11 @@ function computeHealth(DATA){
       // for PLE to have stabilized (fresh restarts show low PLE for the first ~10 minutes).
       const uptimeMin = i.uptime_min || 0;
       if (uptimeMin >= 15 && ple < 60) critical.push(`Page Life Expectancy ${ple}s (severe memory pressure)`);
-      else if (ple < pleFloor) warning.push(`Page Life Expectancy ${ple}s (target â‰¥${pleFloor}s)`);
+      else if (ple < pleFloor) warning.push(`Page Life Expectancy ${ple}s (target ≥${pleFloor}s)`);
     }
     const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
     if (bhr < 90) critical.push(`Buffer cache hit ratio ${bhr.toFixed(1)}% (poor)`);
-    else if (bhr < 97) warning.push(`Buffer cache hit ratio ${bhr.toFixed(1)}% (below target â‰¥97%)`);
+    else if (bhr < 97) warning.push(`Buffer cache hit ratio ${bhr.toFixed(1)}% (below target ≥97%)`);
   }
 
   // === CPU / IO for Azure SQL DB (resource-relative) ===
@@ -805,7 +805,7 @@ function computeHealth(DATA){
 
   // === FILE I/O LATENCY ===
   // Thresholds are engine-aware:
-  //   on-prem: Paul Randal â€” data >10ms warn, >20ms critical; log >5ms critical
+  //   on-prem: Paul Randal — data >10ms warn, >20ms critical; log >5ms critical
   //   Azure SQL DB / MI: remote storage has higher baseline; data >30ms warn,
   //     >100ms critical; log >20ms warn, >50ms critical
   const isAzureAny = isAzureDb || DATA.engine === 'azure-mi';
@@ -833,10 +833,10 @@ function computeHealth(DATA){
   const mi = DATA.missing_indexes || [];
   const severe = mi.filter(m => (m.improvement_score||0) > 500000);
   const high   = mi.filter(m => (m.improvement_score||0) > 100000 && (m.improvement_score||0) <= 500000);
-  if (severe.length > 0) critical.push(`${severe.length} severe missing index(es) â€” top score ${(severe[0].improvement_score/1000).toFixed(0)}k`);
+  if (severe.length > 0) critical.push(`${severe.length} severe missing index(es) — top score ${(severe[0].improvement_score/1000).toFixed(0)}k`);
   else if (high.length > 0) warning.push(`${high.length} high-impact missing index(es)`);
 
-  // === BACKUPS (on-prem only â€” Azure SQL DB has automatic backups) ===
+  // === BACKUPS (on-prem only — Azure SQL DB has automatic backups) ===
   // On lab/dev instances (short uptime, sample DBs), missing backups are normal.
   // Only flag as critical if the instance has been up long enough that a backup
   // policy would realistically have run.
@@ -846,13 +846,13 @@ function computeHealth(DATA){
     const never = userDbs.filter(d => !d.last_full_backup);
     const stale7 = userDbs.filter(d => d.last_full_backup && (Date.now()-new Date(d.last_full_backup).getTime()) > 7*86400000);
     const stale1 = userDbs.filter(d => d.last_full_backup && (Date.now()-new Date(d.last_full_backup).getTime()) > 86400000 && !stale7.includes(d));
-    // Instance uptime in hours â€” treat servers up < 48h as recently-restarted / lab
+    // Instance uptime in hours — treat servers up < 48h as recently-restarted / lab
     const uptimeH = (i.uptime_min||0)/60;
     // Server has been up long enough that a backup should have happened
     const backupsExpected = uptimeH >= 48;
     if (never.length > 0) {
       if (backupsExpected) critical.push(`${never.length} DB(s) never backed up (server up ${uptimeH.toFixed(0)}h)`);
-      else warning.push(`${never.length} DB(s) never backed up (lab/recent-restart â€” normal)`);
+      else warning.push(`${never.length} DB(s) never backed up (lab/recent-restart — normal)`);
     }
     if (stale7.length > 0) warning.push(`${stale7.length} DB(s) not backed up in >7 days`);
     else if (stale1.length >= 3) warning.push(`${stale1.length} DB(s) last full backup >24h ago`);
@@ -918,8 +918,8 @@ function render(DATA, PREV){
     const isAzure = isAzureDb;
     el('current-server-title').innerHTML = esc(cur?.name || 'SQL Server') + engineBadge;
     el('current-server-sub').textContent = isAzureDb
-      ? `${cur?.server||''} Â· db: ${cur?.database||'?'} Â· ${i.edition||''} v${i.product_version||''} Â· collected in ${DATA.collect_ms||'?'}ms`
-      : `${i.server_name||cur?.server||''} Â· ${i.edition||''} Â· v${i.product_version||''} ${i.product_level||''}${i.uptime_min!=null?' Â· up '+(i.uptime_min/60).toFixed(1)+'h':''} Â· collected in ${DATA.collect_ms||'?'}ms`;
+      ? `${cur?.server||''} · db: ${cur?.database||'?'} · ${i.edition||''} v${i.product_version||''} · collected in ${DATA.collect_ms||'?'}ms`
+      : `${i.server_name||cur?.server||''} · ${i.edition||''} · v${i.product_version||''} ${i.product_level||''}${i.uptime_min!=null?' · up '+(i.uptime_min/60).toFixed(1)+'h':''} · collected in ${DATA.collect_ms||'?'}ms`;
 
     // Toggle "unsupported" gray-out based on engine
     el('buffer-card').classList.toggle('disabled', DATA.buffer_pool === null);
@@ -942,7 +942,7 @@ function render(DATA, PREV){
       const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
       const pBhr = p && p.buffer_cache_hit_ratio_base>0 ? (p.buffer_cache_hit_ratio*100/p.buffer_cache_hit_ratio_base) : null;
       kpis = [
-        {label:"Page Life Expectancy", value:fmtInt(i.page_life_expectancy||0)+"s", hint:pleGood?"Healthy (â‰¥300s)":"Below 300s target", cls:pleGood?"good":"warn", badge:pleGood?"OK":"LOW", d:delta(i.page_life_expectancy, p?.page_life_expectancy, true)},
+        {label:"Page Life Expectancy", value:fmtInt(i.page_life_expectancy||0)+"s", hint:pleGood?"Healthy (≥300s)":"Below 300s target", cls:pleGood?"good":"warn", badge:pleGood?"OK":"LOW", d:delta(i.page_life_expectancy, p?.page_life_expectancy, true)},
         {label:"Buffer Cache Hit Ratio", value:bhr.toFixed(2)+"%", hint:"Target >98%", cls:bhr>=98?"good":"warn", badge:bhr>=98?"OK":"LOW", d:delta(bhr.toFixed(2), pBhr!=null?pBhr.toFixed(2):null, true)},
         {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:"", d:delta(i.user_sessions, p?.user_sessions)},
         {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests)},
@@ -986,7 +986,7 @@ function render(DATA, PREV){
       return `<div class="bar-row" title="${w.tasks||0} tasks, avg ${w.avg_wait_ms||0}ms"><div class="name">${esc(wtype)}</div><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div><div class="val">${wtDisplay}</div></div>`;
     }).join('') || '<div class="empty">No wait stats.</div>';
 
-    // Buffer donut (may be null on Azure â€” card grayed above)
+    // Buffer donut (may be null on Azure — card grayed above)
     if (DATA.buffer_pool === null) {
       el('buffer-donut').innerHTML = '';
     } else {
@@ -1040,7 +1040,7 @@ function render(DATA, PREV){
 
     const heatWarn = isAzure || DATA.engine === 'azure-mi' ? 30 : 10;
     const heatCrit = isAzure || DATA.engine === 'azure-mi' ? 100 : 20;
-    el('fileio-sub').textContent = `Per-file read/write stalls â€” green <${heatWarn}ms, amber ${heatWarn}-${heatCrit}ms, red >${heatCrit}ms`;
+    el('fileio-sub').textContent = `Per-file read/write stalls — green <${heatWarn}ms, amber ${heatWarn}-${heatCrit}ms, red >${heatCrit}ms`;
     const heat = (ms)=>{
       if(ms==null) return "";
       if(ms<heatWarn) return "background:rgba(22,163,74,0.15);color:var(--cp-success);";
@@ -1076,7 +1076,7 @@ function render(DATA, PREV){
 
     const mi = DATA.missing_indexes||[];
     if(mi.length===0){
-      el('missing-idx').innerHTML = '<div class="empty">âœ“ No missing-index suggestions from the optimizer at this time.</div>';
+      el('missing-idx').innerHTML = '<div class="empty">✓ No missing-index suggestions from the optimizer at this time.</div>';
     } else {
       el('missing-idx').innerHTML = `<div class="scroll"><table>
         <thead><tr><th>DB / Table</th><th class="num">Impact</th><th class="num">Score</th><th>Columns</th></tr></thead>
@@ -1155,7 +1155,7 @@ function openDetail(title, sub, bodyHtml){
       e.stopPropagation();
       const targetId = btn.dataset.copy;
       const text = document.getElementById(targetId).innerText;
-      try { await navigator.clipboard.writeText(text); btn.textContent='Copied âœ“'; btn.classList.add('copied'); setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},1500); }
+      try { await navigator.clipboard.writeText(text); btn.textContent='Copied ✓'; btn.classList.add('copied'); setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},1500); }
       catch { btn.textContent='Failed'; }
     });
   });
@@ -1171,17 +1171,17 @@ function openDetail(title, sub, bodyHtml){
 }
 
 async function openQueryDetail(db, qid){
-  openDetail(`Query ${qid} Â· ${db}`, `Loading full text and execution plan from Query Storeâ€¦`, `<div class="skeleton" style="height:200px"></div>`);
+  openDetail(`Query ${qid} · ${db}`, `Loading full text and execution plan from Query Store…`, `<div class="skeleton" style="height:200px"></div>`);
   try {
     const r = await fetch(`/api/query-detail?serverId=${encodeURIComponent(activeServerId)}&db=${encodeURIComponent(db)}&queryId=${encodeURIComponent(qid)}`);
     const data = await r.json();
     if(!r.ok) throw new Error(data.error||'Failed');
     const plans = data.plans||[];
-    if(plans.length===0){ openDetail(`Query ${qid} Â· ${db}`, '', '<div class="empty">No plan found.</div>'); return; }
+    if(plans.length===0){ openDetail(`Query ${qid} · ${db}`, '', '<div class="empty">No plan found.</div>'); return; }
     // If multiple plans, show all
     const p0 = plans[0];
     const planCount = plans.length;
-    const sub = `${planCount} plan${planCount>1?'s':''} â€¢ latest last executed ${ago(p0.last_execution_time)} â€¢ ${fmtInt(p0.count_executions)} recent execs`;
+    const sub = `${planCount} plan${planCount>1?'s':''} • latest last executed ${ago(p0.last_execution_time)} • ${fmtInt(p0.count_executions)} recent execs`;
     const meta = `
       <div class="detail-meta">
         <div class="mini-kpi"><div class="l">Avg CPU</div><div class="v">${(p0.avg_cpu_time/1000).toFixed(1)} ms</div></div>
@@ -1214,21 +1214,21 @@ async function openQueryDetail(db, qid){
           <button class="copy-btn" data-copy="query-plan">Copy XML</button>
           <pre class="code-block plan" id="query-plan">${esc(planXml).slice(0,60000)}${planXml.length>60000?'\n\n...(truncated, use Copy to get full XML)':''}</pre>
         </div>
-        <div style="margin-top:8px;font-size:11px;color:var(--cp-text-muted);">Paste this XML into SSMS: right-click a query window â†’ Analyze Actual Execution Plan â†’ or save as <code>.sqlplan</code>.</div>
+        <div style="margin-top:8px;font-size:11px;color:var(--cp-text-muted);">Paste this XML into SSMS: right-click a query window → Analyze Actual Execution Plan → or save as <code>.sqlplan</code>.</div>
       </div>
       <div id="tab-ssms" class="tab-panel">
         <div style="font-size:13px;line-height:1.7;">
-          <p><b>Option 1 Â· SSMS:</b> copy the plan XML above, save to a file named <code>plan.sqlplan</code>, then double-click to open the visual plan viewer.</p>
-          <p><b>Option 2 Â· PasteThePlan:</b> go to <a href="${planUrl}" target="_blank" rel="noopener" style="color:var(--cp-link);">${planUrl}</a>, paste XML, get a shareable visual plan URL (Brent Ozar's free tool).</p>
-          <p><b>Option 3 Â· Azure Data Studio:</b> paste XML into a new file with extension <code>.sqlplan</code>.</p>
+          <p><b>Option 1 · SSMS:</b> copy the plan XML above, save to a file named <code>plan.sqlplan</code>, then double-click to open the visual plan viewer.</p>
+          <p><b>Option 2 · PasteThePlan:</b> go to <a href="${planUrl}" target="_blank" rel="noopener" style="color:var(--cp-link);">${planUrl}</a>, paste XML, get a shareable visual plan URL (Brent Ozar's free tool).</p>
+          <p><b>Option 3 · Azure Data Studio:</b> paste XML into a new file with extension <code>.sqlplan</code>.</p>
           <p><b>Force this plan:</b> <code>EXEC [${db}].sys.sp_query_store_force_plan @query_id = ${qid}, @plan_id = ${p0.plan_id};</code></p>
           <p><b>Unforce:</b> <code>EXEC [${db}].sys.sp_query_store_unforce_plan @query_id = ${qid}, @plan_id = ${p0.plan_id};</code></p>
         </div>
       </div>
     `;
-    openDetail(`Query ${qid} Â· ${db}`, sub, body);
+    openDetail(`Query ${qid} · ${db}`, sub, body);
   } catch(e){
-    openDetail(`Query ${qid} Â· ${db}`, '', `<div class="error-banner show">Fetch failed: ${esc(e.message)}</div>`);
+    openDetail(`Query ${qid} · ${db}`, '', `<div class="error-banner show">Fetch failed: ${esc(e.message)}</div>`);
   }
 }
 
@@ -1242,7 +1242,7 @@ function openIndexDetail(m){
   const inclList = inclCols.map(c=>`[${c}]`).join(', ');
   const ddl = `-- Missing index suggestion for [${m.db_name}].[${m.schema_name}].[${m.table_name}]
 -- Impact: seeks+scans = ${fmtInt(m.user_impact_count)}, improvement score = ${fmtInt(m.improvement_score)}
--- âš  Always review before applying: verify columns are truly beneficial, consider existing indexes,
+-- ⚠  Always review before applying: verify columns are truly beneficial, consider existing indexes,
 --    and estimate write cost. Every index slows down INSERT/UPDATE/DELETE.
 
 USE [${m.db_name}];
@@ -1304,7 +1304,7 @@ WHERE s.database_id = DB_ID() AND i.name = '${idxName}';`;
       </div>
     </div>
   `;
-  openDetail(`Missing Index Â· ${m.schema_name}.${m.table_name}`, `Auto-generated CREATE INDEX statement Â· review carefully before applying`, body);
+  openDetail(`Missing Index · ${m.schema_name}.${m.table_name}`, `Auto-generated CREATE INDEX statement · review carefully before applying`, body);
 }
 
 function generateIndexName(m){
@@ -1315,7 +1315,7 @@ function generateIndexName(m){
   return `IX_${m.table_name}_${parts}`.slice(0,120);
 }
 
-// Countdown tick â€” pauses when paused=true
+// Countdown tick — pauses when paused=true
 setInterval(()=>{
   if(paused) return;
   countdown--;
