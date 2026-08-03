@@ -506,20 +506,27 @@ function confirmDialog(title, message){
     el('confirm-message').textContent = message || '';
     const bd = el('confirm-backdrop');
     bd.classList.add('show');
-    const cleanup = () => {
+    let downTarget = null;
+    const onOk = ()=>{ cleanup(); resolve(true); };
+    const onCancel = ()=>{ cleanup(); resolve(false); };
+    const onDown = (e)=>{ downTarget = e.target; };
+    const onUp = (e)=>{
+      if(downTarget && downTarget.id==='confirm-backdrop' && e.target.id==='confirm-backdrop'){ cleanup(); resolve(false); }
+      downTarget = null;
+    };
+    const onKey = (e)=>{ if(e.key==='Escape'){ cleanup(); resolve(false); } if(e.key==='Enter'){ cleanup(); resolve(true); } };
+    function cleanup(){
       bd.classList.remove('show');
       el('confirm-ok').removeEventListener('click', onOk);
       el('confirm-cancel').removeEventListener('click', onCancel);
-      bd.removeEventListener('click', onBackdrop);
+      bd.removeEventListener('mousedown', onDown);
+      bd.removeEventListener('mouseup', onUp);
       document.removeEventListener('keydown', onKey);
-    };
-    const onOk = ()=>{ cleanup(); resolve(true); };
-    const onCancel = ()=>{ cleanup(); resolve(false); };
-    const onBackdrop = (e)=>{ if(e.target.id==='confirm-backdrop'){ cleanup(); resolve(false); } };
-    const onKey = (e)=>{ if(e.key==='Escape'){ cleanup(); resolve(false); } if(e.key==='Enter'){ cleanup(); resolve(true); } };
+    }
     el('confirm-ok').addEventListener('click', onOk);
     el('confirm-cancel').addEventListener('click', onCancel);
-    bd.addEventListener('click', onBackdrop);
+    bd.addEventListener('mousedown', onDown);
+    bd.addEventListener('mouseup', onUp);
     document.addEventListener('keydown', onKey);
     setTimeout(()=>el('confirm-cancel').focus(), 50);
   });
@@ -577,7 +584,14 @@ el('interval-sel').addEventListener('change', ()=>{
 // Modal handlers
 el('add-server-btn').addEventListener('click', ()=>openModal());
 el('modal-cancel').addEventListener('click', closeModal);
-el('modal-backdrop').addEventListener('click', (e)=>{ if(e.target.id==='modal-backdrop') closeModal(); });
+// Only close if the click both STARTS and ENDS on the backdrop
+// (prevents accidental close when selecting text or dragging outside the modal).
+let modalMouseDownTarget = null;
+el('modal-backdrop').addEventListener('mousedown', (e)=>{ modalMouseDownTarget = e.target; });
+el('modal-backdrop').addEventListener('mouseup', (e)=>{
+  if(modalMouseDownTarget && modalMouseDownTarget.id==='modal-backdrop' && e.target.id==='modal-backdrop') closeModal();
+  modalMouseDownTarget = null;
+});
 el('f-auth').addEventListener('change', ()=>{ updateAuthFields(); updateDatabaseRequired(); });
 el('f-server').addEventListener('input', updateDatabaseRequired);
 el('modal-save').addEventListener('click', saveServer);
@@ -1251,7 +1265,12 @@ function render(DATA, PREV){
 
 // ============ Detail modal ============
 el('detail-close').addEventListener('click', closeDetail);
-el('detail-backdrop').addEventListener('click', (e)=>{ if(e.target.id==='detail-backdrop') closeDetail(); });
+let detailMouseDownTarget = null;
+el('detail-backdrop').addEventListener('mousedown', (e)=>{ detailMouseDownTarget = e.target; });
+el('detail-backdrop').addEventListener('mouseup', (e)=>{
+  if(detailMouseDownTarget && detailMouseDownTarget.id==='detail-backdrop' && e.target.id==='detail-backdrop') closeDetail();
+  detailMouseDownTarget = null;
+});
 document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closeDetail(); closeModal(); } });
 
 function closeDetail(){ el('detail-backdrop').classList.remove('show'); }
