@@ -1113,6 +1113,21 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
     }
 
     // ==============================
+    // Reorder servers (persist sidebar order)
+    // ==============================
+    if (p === '/api/servers/reorder' && req.method === 'POST') {
+      const body = await readBody(req);
+      const order = Array.isArray(body.order) ? body.order : [];
+      const list = await loadServers();
+      const byId = new Map(list.map(s => [s.id, s]));
+      const reordered = [];
+      for (const id of order) if (byId.has(id)) { reordered.push(byId.get(id)); byId.delete(id); }
+      for (const s of byId.values()) reordered.push(s); // any servers not mentioned go at end
+      await saveServers(reordered);
+      return json(res, 200, { ok: true, count: reordered.length });
+    }
+
+    // ==============================
     // Kill session (requires ALTER ANY CONNECTION on the target server)
     // ==============================
     if (p === '/api/kill-session' && req.method === 'POST') {

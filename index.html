@@ -343,6 +343,12 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     <div class="narrative" id="narrative">Select a server to view metrics…</div>
     <div class="kpi-grid" id="kpis"></div>
 
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Timeline</h2>
+      <div class="card-sub">Recent samples from the local history buffer (up to 120 points)</div>
+      <div id="timeline" style="min-height:180px;"><div class="skeleton" style="height:180px"></div></div>
+    </div>
+
     <div class="grid three">
       <div class="card"><h2>Top Waits</h2><div class="card-sub">Cumulative since instance start — where SQL Server spends its time</div><div id="waits"><div class="skeleton" style="height:200px"></div></div></div>
       <div class="card" id="buffer-card"><h2>Buffer Pool by Database</h2><div class="card-sub">RAM used for cached pages per DB</div><div class="donut" id="buffer-donut"><div class="skeleton" style="height:200px;width:100%"></div></div></div>
@@ -1150,6 +1156,29 @@ function renderServerList(){
   }
   el('server-list').innerHTML = html || '<div class="empty" style="font-size:12px;">No servers. Click + Add.</div>';
   el('server-list').querySelectorAll('.server-item').forEach(item=>{
+    item.draggable = true;
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', item.dataset.id);
+      item.style.opacity = '0.4';
+    });
+    item.addEventListener('dragend', () => { item.style.opacity = ''; });
+    item.addEventListener('dragover', (e) => { e.preventDefault(); item.style.borderTop = '2px solid var(--cp-accent)'; });
+    item.addEventListener('dragleave', () => { item.style.borderTop = ''; });
+    item.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      item.style.borderTop = '';
+      const draggedId = e.dataTransfer.getData('text/plain');
+      const targetId = item.dataset.id;
+      if (!draggedId || draggedId === targetId) return;
+      const fromIdx = servers.findIndex(s => s.id === draggedId);
+      const toIdx = servers.findIndex(s => s.id === targetId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = servers.splice(fromIdx, 1);
+      servers.splice(toIdx, 0, moved);
+      renderServerList();
+      // Persist order server-side
+      await fetch('/api/servers/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order: servers.map(s=>s.id) })});
+    });
     item.addEventListener('click', (e)=>{
           if(e.target.dataset.del || e.target.dataset.edit) return;
           setActiveServer(item.dataset.id);
@@ -1492,6 +1521,80 @@ function counterCls(cc) {
   if ((cc.warnGt != null && v >= cc.warnGt) || (cc.warnLt != null && v <= cc.warnLt)) return 'warn';
   return '';
 }
+function renderTimeline(hist, DATA) {
+  if (!Array.isArray(hist) || hist.length < 2) {
+    el('timeline').innerHTML = '<div class="empty">Collecting samples… (charts appear after 2+ refresh cycles)</div>';
+    return;
+  }
+  const isAzureDb = DATA.engine === 'azure-sqldb';
+  // Choose 3 series depending on engine
+  const seriesDefs = isAzureDb ? [
+    { key:'cpuPct', label:'CPU %', color:'#e11d48' },
+    { key:'memPct', label:'Memory %', color:'#0ea5e9' },
+    { key:'ioPct',  label:'Data I/O %', color:'#f59e0b' },
+  ] : [
+    { key:'ple',      label:'Page Life Expectancy (s)', color:'#0ea5e9' },
+    { key:'sessions', label:'User Sessions',            color:'#22c55e' },
+    { key:'active',   label:'Active Requests',          color:'#f59e0b' },
+  ];
+  const w = 900, h = 180, padL = 45, padR = 20, padT = 15, padB = 30;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const n = hist.length;
+  const stepX = n > 1 ? innerW / (n - 1) : innerW;
+
+  const paths = seriesDefs.map(s => {
+    const vals = hist.map(x => (typeof x[s.key] === 'number') ? x[s.key] : null);
+    const validVals = vals.filter(v => v != null);
+    if (validVals.length < 2) return { ...s, d: '', min:0, max:0 };
+    const min = Math.min(...validVals);
+    const max = Math.max(...validVals);
+    const range = max - min || 1;
+    let d = ''; let started = false;
+    vals.forEach((v, i) => {
+      if (v == null) return;
+      const x = padL + i * stepX;
+      const y = padT + innerH - ((v - min) / range) * innerH;
+      d += (started ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+      started = true;
+    });
+    return { ...s, d, min, max };
+  });
+
+  // X axis ticks: first, middle, last
+  const tickIdx = [0, Math.floor(n/2), n-1];
+  const xLabels = tickIdx.map(i => {
+    const t = hist[i]?.t;
+    if (!t) return '';
+    const d = new Date(t);
+    return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  });
+
+  const legend = paths.map((p, i) => `
+    <span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:12px;">
+      <span style="width:14px;height:2px;background:${p.color};"></span>
+      <span>${esc(p.label)}</span>
+      <span style="color:var(--cp-text-muted);font-variant-numeric:tabular-nums;">(${p.min?.toFixed(0)}–${p.max?.toFixed(0)})</span>
+    </span>`).join('');
+
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const y = padT + innerH * f;
+    return `<line x1="${padL}" x2="${w-padR}" y1="${y}" y2="${y}" stroke="var(--cp-border)" stroke-width="0.5" stroke-dasharray="2,3"/>`;
+  }).join('');
+
+  const xAxisLabels = tickIdx.map((i, k) => {
+    const x = padL + i * stepX;
+    return `<text x="${x}" y="${h - 8}" text-anchor="middle" font-size="10" fill="var(--cp-text-muted)">${xLabels[k]}</text>`;
+  }).join('');
+
+  const svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-height:200px;">
+    ${grid}
+    ${xAxisLabels}
+    ${paths.filter(p=>p.d).map(p => `<path d="${p.d}" fill="none" stroke="${p.color}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
+  </svg>`;
+
+  el('timeline').innerHTML = `<div style="margin-bottom:8px;">${legend}</div>${svg}`;
+}
+
 function renderCustomCounterCards(DATA, hist) {
   const ccs = DATA.custom_counters || [];
   if (ccs.length === 0) return '';
@@ -1625,6 +1728,9 @@ function render(DATA, PREV){
         <div class="hint">${k.hint||''}</div>
         ${k.spark ? renderSparkline(hist, k.spark) : ''}
       </div>`).join('') + renderCustomCounterCards(DATA, hist);
+
+    // Timeline chart from history buffer
+    renderTimeline(hist, DATA);
 
     // Narrative — sourced from computeHealth() so it always matches the semaphore
     const h = computeHealth(DATA);
