@@ -178,77 +178,44 @@ async function resolveServer(s) {
 
 // Return sqlcmd arg list for auth + connection options
 // ==============================
-// Access token cache for Entra ID Interactive (MFA)
-// Acquires an access token ONCE via a PowerShell/Az.Accounts (or MSAL) helper,
-// caches it in memory, and reuses across all sqlcmd invocations by passing it via
-// SQLCMDACCESSTOKEN + --authentication-method=ActiveDirectoryAccessToken.
-// This prevents the browser prompt from firing on every metrics collection.
+// Azure CLI session bootstrap for Entra ID Interactive (MFA)
+// Uses `az account get-access-token` as a fast "is there a session?" check.
+// If no session, runs `az login` interactively (browser popup ONCE); after that,
+// every sqlcmd call uses --authentication-method=ActiveDirectoryAzCli which
+// silently reuses that cached session — no more prompts until refresh token
+// expires (~90 days).
 // ==============================
-const tokenCache = new Map();   // serverId -> { token, expiresAt }
-const tokenLocks = new Map();   // serverId -> Promise (avoid concurrent acquisitions)
+const azLoginLock = new Map();  // serverId -> Promise
 
-async function acquireEntraToken(cfg) {
-  const now = Date.now();
-  const cached = tokenCache.get(cfg.id);
-  // Renew 5 min before expiry
-  if (cached && cached.expiresAt - 300000 > now) return cached.token;
-  if (tokenLocks.has(cfg.id)) return tokenLocks.get(cfg.id);
+async function ensureAzCliSession(cfg) {
+  if (cfg.auth !== 'azuread-interactive') return;
+  if (azLoginLock.has(cfg.id)) return azLoginLock.get(cfg.id);
 
   const p = (async () => {
-    // Use Az.Accounts if installed; otherwise fall back to MSAL.PS; otherwise
-    // shell out to `az account get-access-token` (requires Azure CLI).
-    const psScript = `
-$ErrorActionPreference = 'Stop'
-$user = '${(cfg.user || '').replace(/'/g, "''")}'
-$resource = 'https://database.windows.net/'
-try {
-  # Prefer Azure CLI (already installed on most dev boxes; supports device code + interactive)
-  $azOut = & az account get-access-token --resource $resource 2>$null | ConvertFrom-Json
-  if ($azOut -and $azOut.accessToken) {
-    Write-Output ("TOKEN::" + $azOut.accessToken)
-    Write-Output ("EXPIRES::" + $azOut.expiresOn)
-    exit 0
-  }
-} catch {}
-try {
-  # Fallback: Az.Accounts module
-  Import-Module Az.Accounts -ErrorAction Stop -DisableNameChecking
-  $ctx = Get-AzContext -ErrorAction SilentlyContinue
-  if (-not $ctx) { Connect-AzAccount -ErrorAction Stop | Out-Null }
-  $t = Get-AzAccessToken -ResourceUrl $resource -ErrorAction Stop
-  Write-Output ("TOKEN::" + $t.Token)
-  Write-Output ("EXPIRES::" + $t.ExpiresOn.UtcDateTime.ToString('o'))
-  exit 0
-} catch {
-  Write-Error ("Token acquisition failed: " + $_.Exception.Message)
-  exit 1
-}
-`;
-    const scriptFile = path.join(TMP_DIR, `token-${cfg.id}.ps1`);
-    await writeFile(scriptFile, psScript, 'utf8');
-    return new Promise((resolve, reject) => {
-      execFile('powershell.exe',
-        ['-NoProfile','-ExecutionPolicy','Bypass','-File', scriptFile],
-        { timeout: 180000, windowsHide: false, encoding: 'utf8' },  // Show window so MFA popup works
-        (err, stdout, stderr) => {
-          if (err) return reject(new Error(`Token acquire failed: ${(stderr||err.message).slice(0,300)}`));
-          const tokMatch = stdout.match(/TOKEN::(.+)/);
-          const expMatch = stdout.match(/EXPIRES::(.+)/);
-          if (!tokMatch) return reject(new Error(`No token in output: ${stdout.slice(0,300)}`));
-          const token = tokMatch[1].trim();
-          const expIso = expMatch ? expMatch[1].trim() : null;
-          const expiresAt = expIso ? new Date(expIso).getTime() : (Date.now() + 3300000); // 55 min fallback
-          tokenCache.set(cfg.id, { token, expiresAt });
-          console.log(`Acquired Entra token for ${cfg.id} (expires ${new Date(expiresAt).toISOString()})`);
-          resolve(token);
-        });
+    // Fast check: is `az` already logged in with a token for SQL?
+    const check = await new Promise((resolve) => {
+      execFile('az',
+        ['account', 'get-access-token', '--resource', 'https://database.windows.net/', '--query', 'expiresOn', '-o', 'tsv'],
+        { timeout: 10000, windowsHide: true, shell: true },
+        (err, stdout) => resolve({ ok: !err && stdout.trim().length > 0, expires: stdout.trim() }));
     });
+    if (check.ok) {
+      console.log(`Azure CLI session valid for ${cfg.id}, expires ${check.expires}`);
+      return;
+    }
+    // No session — run az login interactively (browser popup, one time)
+    console.log(`No valid Azure CLI session — launching az login for ${cfg.id}`);
+    const loginArgs = ['login'];
+    if (cfg.user) { loginArgs.push('--username', cfg.user); }
+    await new Promise((resolve, reject) => {
+      execFile('az', loginArgs, { timeout: 180000, windowsHide: false, shell: true },
+        (err, stdout, stderr) => err ? reject(new Error(`az login failed: ${(stderr||err.message).slice(0,300)}`)) : resolve());
+    });
+    console.log(`az login completed for ${cfg.id}`);
   })();
-  tokenLocks.set(cfg.id, p);
-  try { return await p; } finally { tokenLocks.delete(cfg.id); }
+  azLoginLock.set(cfg.id, p);
+  try { await p; } finally { azLoginLock.delete(cfg.id); }
 }
-
-function invalidateToken(cfg) { tokenCache.delete(cfg.id); }
 
 function buildSqlcmdArgs(cfg, extraArgs = [], opts = {}) {
   const args = ['-S', cfg.server];
@@ -261,9 +228,12 @@ function buildSqlcmdArgs(cfg, extraArgs = [], opts = {}) {
       break;
     case 'azuread-password': args.push('-G', '-U', cfg.user, '-P', cfg.password); break;
     case 'azuread-interactive':
+      // go-sqlcmd v1.10 doesn't support ActiveDirectoryAccessToken but does
+      // support ActiveDirectoryAzCli which reuses the Azure CLI cached session.
+      // We run `az login` once (or reuse an existing session), and all future
+      // sqlcmd calls silently reuse the same cached token — no browser popup.
       if (opts.useAccessToken) {
-        // Token supplied via SQLCMDACCESSTOKEN env var - no prompt, no user needed
-        args.push('--authentication-method=ActiveDirectoryAccessToken');
+        args.push('--authentication-method=ActiveDirectoryAzCli');
       } else {
         args.push('--authentication-method=ActiveDirectoryInteractive');
         if (cfg.user) args.push('-U', cfg.user);
@@ -426,6 +396,7 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
 // On-prem MEGA batch below (existing)
 const MEGA_SQL = `
 SET NOCOUNT ON;
+SET ANSI_WARNINGS OFF;
 SELECT
   JSON_QUERY((SELECT
      @@SERVERNAME AS server_name,
@@ -518,6 +489,7 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
 // Separate Query Store batch - can be slow, fetched with own timeout, doesn't block main metrics
 const TOP_QUERIES_SQL = `
 SET NOCOUNT ON;
+SET ANSI_WARNINGS OFF;
 DECLARE @topqSql NVARCHAR(MAX)=N'';
 SELECT @topqSql = @topqSql + '
 UNION ALL
@@ -566,32 +538,29 @@ let sqlPaths = null;
 async function runSqlcmdJson(cfg, scriptPath, tag, timeoutSec) {
   const outFile = path.join(TMP_DIR, `${tag}-${cfg.id}.out`);
 
-  let accessToken = null;
   if (cfg.auth === 'azuread-interactive') {
-    accessToken = await acquireEntraToken(cfg);
+    await ensureAzCliSession(cfg);
   }
+  const useAzCli = cfg.auth === 'azuread-interactive';
 
   const args = buildSqlcmdArgs(cfg, [
     '-l', '10', '-t', String(timeoutSec),
     '-y', '0', '-Y', '0',
     '-w', '65535',
     '-i', scriptPath, '-o', outFile,
-  ], { useAccessToken: !!accessToken });
-
-  const env = { ...process.env };
-  if (accessToken) env.SQLCMDACCESSTOKEN = accessToken;
+  ], { useAccessToken: useAzCli });
 
   try {
     await new Promise((resolve, reject) => {
-      execFile(pickSqlcmd(cfg), args, { timeout: (timeoutSec + 5) * 1000, windowsHide: true, encoding: 'utf8', env },
+      execFile(pickSqlcmd(cfg), args, { timeout: (timeoutSec + 5) * 1000, windowsHide: true, encoding: 'utf8' },
         (err, stdout, stderr) => {
           if (err) return reject(new Error(`sqlcmd ${tag} failed: ${err.message}\nSTDERR: ${(stderr||'').slice(0,400)}`));
           resolve();
         });
     });
   } catch (e) {
-    // If token was rejected, invalidate cache so next call re-prompts
-    if (accessToken && /token|authenticat|expire/i.test(e.message)) invalidateToken(cfg);
+    // If Az CLI session died, next call will re-run az login
+    if (useAzCli && /authenticat|token|login/i.test(e.message)) azLoginLock.delete(cfg.id);
     throw e;
   }
 
@@ -667,12 +636,11 @@ async function collectFor(cfg) {
 }
 
 async function probeEngineEdition(cfg) {
-  let accessToken = null;
-  if (cfg.auth === 'azuread-interactive') accessToken = await acquireEntraToken(cfg);
-  const args = buildSqlcmdArgs(cfg, ['-l','10','-t','15','-h','-1','-W','-Q','SELECT CAST(SERVERPROPERTY(\'EngineEdition\') AS INT) AS e'], { useAccessToken: !!accessToken });
-  const env = { ...process.env }; if (accessToken) env.SQLCMDACCESSTOKEN = accessToken;
+  if (cfg.auth === 'azuread-interactive') await ensureAzCliSession(cfg);
+  const useAzCli = cfg.auth === 'azuread-interactive';
+  const args = buildSqlcmdArgs(cfg, ['-l','10','-t','15','-h','-1','-W','-Q','SELECT CAST(SERVERPROPERTY(\'EngineEdition\') AS INT) AS e'], { useAccessToken: useAzCli });
   return new Promise((resolve, reject) => {
-    execFile(pickSqlcmd(cfg), args, { timeout: 20000, windowsHide: true, encoding: 'utf8', env },
+    execFile(pickSqlcmd(cfg), args, { timeout: 20000, windowsHide: true, encoding: 'utf8' },
       (err, stdout) => {
         if (err) return reject(err);
         const m = stdout.match(/(\d+)/);
@@ -682,27 +650,24 @@ async function probeEngineEdition(cfg) {
 }
 
 async function testConnection(cfg) {
-  let accessToken = null;
   if (cfg.auth === 'azuread-interactive') {
-    // For test connection, allow the initial popup to happen if no token cached
-    try { accessToken = await acquireEntraToken(cfg); }
-    catch (e) { return { ok: false, error: 'Token acquisition failed: ' + e.message.slice(0,400) }; }
+    try { await ensureAzCliSession(cfg); }
+    catch (e) { return { ok: false, error: 'Azure CLI login failed: ' + e.message.slice(0,400) }; }
   }
+  const useAzCli = cfg.auth === 'azuread-interactive';
   const args = buildSqlcmdArgs(cfg, [
     '-l', '60', '-t', '60',
     '-h', '-1',
     '-Q', 'SELECT 1',
-  ], { useAccessToken: !!accessToken });
-  const env = { ...process.env }; if (accessToken) env.SQLCMDACCESSTOKEN = accessToken;
-  const needsUi = cfg.auth === 'azuread-interactive' && !accessToken;
+  ], { useAccessToken: useAzCli });
   return new Promise((resolve) => {
-    execFile(pickSqlcmd(cfg), args, { timeout: needsUi ? 180000 : 30000, windowsHide: !needsUi, encoding: 'utf8', env },
+    execFile(pickSqlcmd(cfg), args, { timeout: 30000, windowsHide: true, encoding: 'utf8' },
       (err, stdout, stderr) => {
         if (err) {
           const parts = [];
           if (stderr && stderr.trim()) parts.push('STDERR: ' + stderr.trim());
           if (stdout && stdout.trim()) parts.push('STDOUT: ' + stdout.trim());
-          if (err.killed) parts.push(needsUi ? '(timed out — did you complete the MFA popup?)' : '(process timed out)');
+          if (err.killed) parts.push('(process timed out)');
           if (parts.length === 0) parts.push(err.message);
           resolve({ ok: false, error: parts.join(' | ').slice(0, 900) });
         } else resolve({ ok: true });
@@ -846,12 +811,11 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
       const detailFile = path.join(TMP_DIR, `detail-${cfg.id}-${qid}.out`);
       const detailSql = path.join(TMP_DIR, `detail-${cfg.id}-${qid}.sql`);
       await writeFile(detailSql, sql, 'utf8');
-      let detailToken = null;
-      if (cfg.auth === 'azuread-interactive') detailToken = await acquireEntraToken(cfg);
+      if (cfg.auth === 'azuread-interactive') await ensureAzCliSession(cfg);
+      const useAzCliDetail = cfg.auth === 'azuread-interactive';
       await new Promise((resolve, reject) => {
-        const args = buildSqlcmdArgs(cfg, ['-l', '10', '-t', '30', '-y', '0', '-Y', '0', '-i', detailSql, '-o', detailFile], { useAccessToken: !!detailToken });
-        const env = { ...process.env }; if (detailToken) env.SQLCMDACCESSTOKEN = detailToken;
-        execFile(pickSqlcmd(cfg), args, { timeout: 40000, windowsHide: true, encoding: 'utf8', env },
+        const args = buildSqlcmdArgs(cfg, ['-l', '10', '-t', '30', '-y', '0', '-Y', '0', '-i', detailSql, '-o', detailFile], { useAccessToken: useAzCliDetail });
+        execFile(pickSqlcmd(cfg), args, { timeout: 40000, windowsHide: true, encoding: 'utf8' },
           (err, stdout, stderr) => err ? reject(new Error(stderr||err.message)) : resolve());
       });
       const raw = await readFile(detailFile, 'utf8');
