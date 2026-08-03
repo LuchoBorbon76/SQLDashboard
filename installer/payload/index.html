@@ -431,11 +431,11 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     <div class="field" id="f-database-field">
       <label>Database <span id="f-database-req" style="color:var(--cp-danger);display:none;">*</span></label>
       <div style="display:flex;gap:6px;">
-        <input type="text" id="f-database" list="f-database-list" placeholder="mydb" style="flex:1;">
-        <button type="button" class="btn ghost" id="f-database-fetch" title="Load databases visible to the entered account">↻</button>
+        <input type="text" id="f-database" list="f-database-list" placeholder="Load databases first…" style="flex:1;" disabled>
+        <button type="button" class="btn ghost" id="f-database-fetch" title="Authenticate and load databases">Load</button>
       </div>
       <datalist id="f-database-list"></datalist>
-      <div class="hint" id="f-database-hint">Required for Azure SQL Database. Click ↻ to load databases visible to the account you entered.</div>
+      <div class="hint" id="f-database-hint">Click <b>Load</b> after entering server + credentials to pick from the databases you have access to.</div>
     </div>
     <div class="field" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div>
@@ -614,6 +614,10 @@ function openModal(existing){
   el('modal-err').style.display = 'none';
   el('f-database-list').innerHTML = '';
   el('f-pw-existing-hint').style.display = (existing && existing.hasPassword) ? 'inline' : 'none';
+  // On edit, if there's already a database saved, keep the field enabled (user can retype)
+  const hasSavedDb = !!(existing && existing.database);
+  el('f-database').disabled = !hasSavedDb;
+  el('f-database').placeholder = hasSavedDb ? 'mydb' : 'Load databases first…';
   updateAuthFields();
   updateDatabaseRequired();
   el('modal-backdrop').classList.add('show');
@@ -648,13 +652,20 @@ async function fetchDatabaseList(){
   const server = el('f-server').value.trim();
   const auth = el('f-auth').value;
   if (!server) { showModalErr('Enter server address first.'); return; }
-  btn.disabled = true; btn.textContent = '…';
+  // Validate credentials by auth type
+  const user = el('f-user').value.trim();
+  const pw = el('f-pw').value;
+  if ((auth==='sqlauth' || auth==='azuread-password') && (!user || !pw)) {
+    showModalErr('Enter username and password for this authentication method.'); return;
+  }
+  if ((auth==='azuread-interactive' || auth==='azuread-integrated') && !user) {
+    showModalErr('Enter the Entra ID user (user@domain.com) so the correct account is used.'); return;
+  }
+  btn.disabled = true; btn.textContent = 'Loading…';
   el('modal-err').style.display = 'none';
   try {
     const body = {
-      server, auth,
-      user: el('f-user').value.trim(),
-      password: el('f-pw').value,
+      server, auth, user, password: pw,
       encrypt: el('f-encrypt').value === 'true',
       trustCert: el('f-trustcert').value === 'true',
     };
@@ -662,15 +673,23 @@ async function fetchDatabaseList(){
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Failed');
     const dl = el('f-database-list');
-    dl.innerHTML = (data.databases||[]).map(n=>`<option value="${esc(n)}"></option>`).join('');
-    if ((data.databases||[]).length === 0) {
-      showModalErr(data.warning ? `No databases listed. ${data.warning}` : 'No databases visible to this account. Type the database name manually.');
+    const list = data.databases || [];
+    dl.innerHTML = list.map(n=>`<option value="${esc(n)}"></option>`).join('');
+    if (list.length === 0) {
+      // On Azure SQL DB, master isn't queryable — user must type. Enable the field anyway.
+      el('f-database').disabled = false;
+      el('f-database').placeholder = 'Type database name';
+      showModalErr(data.warning ? `No databases listed. ${data.warning}` : 'Authenticated OK but no databases visible from master. Type the database name manually.');
     } else {
-      // Auto-focus into the input so the browser can show the suggestions
+      el('f-database').disabled = false;
+      el('f-database').placeholder = 'Pick or type a database';
+      el('f-database-hint').innerHTML = `<b>${list.length}</b> database${list.length>1?'s':''} available. Click the field to see the list.`;
       el('f-database').focus();
     }
-  } catch(e){ showModalErr('Fetch failed: ' + e.message); }
-  finally { btn.disabled = false; btn.textContent = '↻'; }
+  } catch(e){
+    showModalErr('Authentication or fetch failed: ' + e.message);
+  }
+  finally { btn.disabled = false; btn.textContent = 'Load'; }
 }
 
 async function saveServer(){
