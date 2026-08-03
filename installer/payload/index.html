@@ -615,7 +615,7 @@ function renderServerList(){
             <div class="name">${esc(s.name)}</div>
             <div class="meta">${esc(s.server)} · ${authLabel}</div>
           </div>
-          <button class="del" data-del="${esc(s.id)}" title="Remove">Ã—</button>
+          <button class="del" data-del="${esc(s.id)}" title="Remove">×</button>
     </div>`;
   }).join('');
   el('server-list').innerHTML = html || '<div class="empty" style="font-size:12px;">No servers. Click + Add.</div>';
