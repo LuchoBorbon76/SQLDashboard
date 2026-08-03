@@ -86,14 +86,19 @@ body{margin:0;background:var(--cp-bg);color:var(--cp-text);font-family:"Segoe UI
 .sidebar .add-btn{background:var(--cp-accent);color:var(--cp-accent-fg);border:none;padding:10px;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;}
 .sidebar .add-btn:hover{background:var(--cp-accent-hover);}
 .main{padding:20px 24px;overflow-x:hidden;}
-header.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;margin-bottom:16px;gap:16px;flex-wrap:wrap;}
+header.topbar{display:flex;align-items:flex-start;justify-content:space-between;padding:16px 20px;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;margin-bottom:16px;gap:20px;flex-wrap:wrap;}
+.topbar-left{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;}
+.topbar-right{display:flex;flex-direction:column;align-items:center;gap:10px;flex:0 0 auto;}
 header.topbar h2{margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em;}
 header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
-.controls{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;}
-.controls .tb{position:relative;display:inline-flex;align-items:center;justify-content:center;width:38px;height:36px;padding:0;font-size:16px;line-height:1;flex:0 0 auto;}
-.controls .tb.wide{width:auto;padding:0 12px;}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.controls .tb{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 14px;font-size:13px;line-height:1;flex:0 0 auto;white-space:nowrap;}
+.controls .tb .ic{font-size:16px;line-height:1;}
+.controls .tb.icon-only{padding:0;width:38px;}
 .controls .tb .cnt-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--cp-danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;display:none;align-items:center;justify-content:center;line-height:1;box-shadow:0 0 0 2px var(--cp-surface);}
 .controls .tb .cnt-badge.show{display:inline-flex;}
+.controls-row2{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--cp-text-muted);}
+.controls-row2 .btn.primary{padding:8px 20px;font-size:13px;}
 .live-indicator{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--cp-text-muted);}
 .live-dot{width:8px;height:8px;border-radius:50%;background:var(--cp-success);box-shadow:0 0 0 0 var(--cp-success);animation:live-pulse 1.5s infinite;}
 .live-dot.stale{background:var(--cp-warning);animation:none;}
@@ -104,7 +109,8 @@ header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
 .countdown-ring svg{transform:rotate(-90deg);}
 .countdown-ring .ring-bg{fill:none;stroke:var(--cp-surface-soft);stroke-width:4;}
 .countdown-ring .ring-fg{fill:none;stroke:var(--cp-accent);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset 1s linear;}
-.countdown-ring .n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;}
+.countdown-ring{position:relative;width:44px;height:44px;}
+.countdown-ring .n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:16px;}
 .kpi{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:16px;position:relative;overflow:hidden;min-height:112px;}
 .kpi:hover{transform:none;}
@@ -304,42 +310,46 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
 
   <main class="main">
     <header class="topbar">
-      <div>
-        <h2 id="current-server-title">No server selected</h2>
-        <div class="sub" id="current-server-sub"></div>
-      </div>
-      <div class="semaphore" id="semaphore" title="Click for details">
-        <div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div>
-        <div class="label"><span class="l1">Health</span><span class="l2" id="health-label">…</span></div>
-        <span class="caret">▾</span>
-        <div class="health-popover" id="health-popover"></div>
-      </div>
-      <div class="controls">
-        <label style="font-size:11px;color:var(--cp-text-muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;display:flex;align-items:center;gap:6px;">
-          Refresh
-          <select id="interval-sel" class="btn ghost" style="padding:6px 10px;font-size:12px;">
-            <option value="30">30 s</option>
-            <option value="60">1 min</option>
-            <option value="120">2 min</option>
-            <option value="300">5 min</option>
-            <option value="600">10 min</option>
-            <option value="1800">30 min</option>
-          </select>
-        </label>
-        <button class="btn ghost tb" id="pause-btn" title="Pause auto-refresh" aria-label="Pause">⏸</button>
-        <button class="btn ghost tb" id="ai-btn" title="Ask AI (local Ollama) about this server" aria-label="Ask AI">🤖</button>
-        <button class="btn ghost tb" id="alerts-btn" title="Alerts" aria-label="Alerts">🔔<span id="alerts-count-badge" class="cnt-badge">0</span></button>
-        <button class="btn ghost tb" id="counters-btn" title="Manage custom counters" aria-label="Counters">🎯</button>
-        <button class="btn ghost tb" id="snapshot-btn" title="Save current sample as baseline" aria-label="Snapshot">📸</button>
-        <button class="btn ghost tb" id="export-btn" title="Download current metrics as JSON" aria-label="Export">⬇</button>
-        <button class="btn tb wide" id="refresh-btn" title="Refresh now">Refresh</button>
-        <div class="live-indicator">
+      <div class="topbar-left">
+        <div>
+          <h2 id="current-server-title">No server selected</h2>
+          <div class="sub" id="current-server-sub"></div>
+        </div>
+        <div class="controls">
+          <label style="font-size:11px;color:var(--cp-text-muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;display:flex;align-items:center;gap:6px;">
+            Refresh
+            <select id="interval-sel" class="btn ghost" style="padding:8px 10px;font-size:12px;height:38px;">
+              <option value="30">30 s</option>
+              <option value="60">1 min</option>
+              <option value="120">2 min</option>
+              <option value="300">5 min</option>
+              <option value="600">10 min</option>
+              <option value="1800">30 min</option>
+            </select>
+          </label>
+          <button class="btn ghost tb" id="pause-btn" title="Pause auto-refresh"><span class="ic">⏸</span><span>Pause</span></button>
+          <button class="btn ghost tb" id="ai-btn" title="Ask AI (local Ollama) about this server"><span class="ic">🤖</span><span>Ask AI</span></button>
+          <button class="btn ghost tb" id="alerts-btn" title="Alerts"><span class="ic">🔔</span><span>Alerts</span><span id="alerts-count-badge" class="cnt-badge">0</span></button>
+          <button class="btn ghost tb" id="counters-btn" title="Manage custom counters"><span class="ic">🎯</span><span>Counters</span></button>
+          <button class="btn ghost tb" id="snapshot-btn" title="Save current sample as baseline"><span class="ic">📸</span><span>Snapshot</span></button>
+          <button class="btn ghost tb" id="export-btn" title="Download current metrics as JSON"><span class="ic">⬇</span><span>Export</span></button>
+        </div>
+        <div class="controls-row2">
+          <button class="btn primary" id="refresh-btn">Refresh now</button>
           <div class="live-dot" id="live-dot"></div>
           <div id="live-status">Loading…</div>
-          <div class="countdown-ring">
-            <svg width="38" height="38"><circle class="ring-bg" cx="19" cy="19" r="15"/><circle class="ring-fg" id="ring-fg" cx="19" cy="19" r="15" stroke-dasharray="94.25" stroke-dashoffset="0"/></svg>
-            <div class="n" id="countdown">30</div>
-          </div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="semaphore" id="semaphore" title="Click for details">
+          <div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div>
+          <div class="label"><span class="l1">Health</span><span class="l2" id="health-label">…</span></div>
+          <span class="caret">▾</span>
+          <div class="health-popover" id="health-popover"></div>
+        </div>
+        <div class="countdown-ring">
+          <svg width="44" height="44"><circle class="ring-bg" cx="22" cy="22" r="18"/><circle class="ring-fg" id="ring-fg" cx="22" cy="22" r="18" stroke-dasharray="113.1" stroke-dashoffset="0"/></svg>
+          <div class="n" id="countdown">30</div>
         </div>
       </div>
     </header>
@@ -708,7 +718,9 @@ updateThemeUi();
 el('refresh-btn').addEventListener('click', ()=>{ countdown = 0; fetchMetrics(); });
 el('pause-btn').addEventListener('click', ()=>{
   paused = !paused;
-  el('pause-btn').textContent = paused ? '▶' : '⏸';
+  const spans = el('pause-btn').querySelectorAll('span');
+  if (spans[0]) spans[0].textContent = paused ? '▶' : '⏸';
+  if (spans[1]) spans[1].textContent = paused ? 'Resume' : 'Pause';
   el('pause-btn').title = paused ? 'Resume auto-refresh' : 'Pause auto-refresh';
   el('live-dot').classList.toggle('paused', paused);
   if(paused){ setStatus('paused','Paused'); }
@@ -756,10 +768,16 @@ el('snapshot-btn').addEventListener('click', () => {
   st.snapshot = { data: st.data, at: Date.now() };
   localStorage.setItem('snapshot-'+activeServerId, JSON.stringify(st.snapshot));
   const btn = el('snapshot-btn');
-  const prev = btn.textContent;
-  btn.textContent = '✓';
+  const spans = btn.querySelectorAll('span');
+  const oldIcon = spans[0]?.textContent, oldLbl = spans[1]?.textContent;
+  if (spans[0]) spans[0].textContent = '✓';
+  if (spans[1]) spans[1].textContent = 'Saved';
   btn.style.color = 'var(--cp-success)';
-  setTimeout(() => { btn.textContent = prev; btn.style.color = ''; }, 1500);
+  setTimeout(() => {
+    if (spans[0]) spans[0].textContent = oldIcon;
+    if (spans[1]) spans[1].textContent = oldLbl;
+    btn.style.color = '';
+  }, 1500);
   render(st.data, st.snapshot.data);
 });
 el('export-btn').addEventListener('click', () => {
@@ -2252,7 +2270,7 @@ setInterval(()=>{
   if(paused) return;
   countdown--;
   el('countdown').textContent = formatCountdown(Math.max(0,countdown));
-  const dashLen = 2 * Math.PI * 15;
+  const dashLen = 2 * Math.PI * 18;
   const offset = dashLen * (1 - Math.max(0,countdown)/refreshSeconds);
   el('ring-fg').setAttribute('stroke-dashoffset', offset);
   if(countdown<=0){
