@@ -79,8 +79,10 @@ body{margin:0;background:var(--cp-bg);color:var(--cp-text);font-family:"Segoe UI
 .server-item .body .name{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .server-item .body .meta{font-size:11px;color:var(--cp-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Consolas,monospace;}
 .server-item .del{opacity:0;color:var(--cp-text-muted);font-size:16px;padding:0 4px;line-height:1;transition:opacity 0.15s,color 0.15s;background:none;border:none;cursor:pointer;}
-.server-item:hover .del{opacity:1;}
+.server-item:hover .del,.server-item:hover .edit{opacity:1;}
 .server-item .del:hover{color:var(--cp-danger);}
+.server-item .edit{opacity:0;color:var(--cp-text-muted);font-size:13px;padding:0 4px;line-height:1;transition:opacity 0.15s,color 0.15s;background:none;border:none;cursor:pointer;}
+.server-item .edit:hover{color:var(--cp-accent);}
 .sidebar .add-btn{background:var(--cp-accent);color:var(--cp-accent-fg);border:none;padding:10px;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;}
 .sidebar .add-btn:hover{background:var(--cp-accent-hover);}
 .main{padding:20px 24px;overflow-x:hidden;}
@@ -396,8 +398,8 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
 <!-- Add server modal -->
 <div class="modal-backdrop" id="modal-backdrop">
   <div class="modal">
-    <h2>Add SQL Server</h2>
-    <div class="sub">Test connection runs before saving. Credentials are stored locally in <code>servers.json</code>.</div>
+    <h2 id="modal-title">Add SQL Server</h2>
+    <div class="sub" id="modal-sub">Test connection runs before saving. Credentials are stored locally in <code>servers.json</code>.</div>
     <div class="warning-box"><b>⚠  Note:</b> passwords are stored in plain text in servers.json on this machine. Prefer Windows or Entra ID Integrated auth when possible.</div>
     <div class="field">
       <label>Display name</label>
@@ -423,13 +425,17 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       <input type="text" id="f-user" placeholder="username or user@domain.com">
     </div>
     <div class="field" id="f-pw-field" style="display:none;">
-      <label>Password</label>
+      <label>Password <span id="f-pw-existing-hint" style="display:none;font-weight:400;color:var(--cp-text-muted);font-size:11px;">(leave blank to keep existing)</span></label>
       <input type="password" id="f-pw" placeholder="•••••••">
     </div>
-    <div class="field">
-      <label>Database (optional — required for Azure SQL Database)</label>
-      <input type="text" id="f-database" placeholder="master (default) or e.g. mydb">
-      <div class="hint">Leave blank for on-prem. For Azure SQL Database, enter the specific database name.</div>
+    <div class="field" id="f-database-field">
+      <label>Database <span id="f-database-req" style="color:var(--cp-danger);display:none;">*</span></label>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="f-database" list="f-database-list" placeholder="mydb" style="flex:1;">
+        <button type="button" class="btn ghost" id="f-database-fetch" title="Load databases visible to the entered account">↻</button>
+      </div>
+      <datalist id="f-database-list"></datalist>
+      <div class="hint" id="f-database-hint">Required for Azure SQL Database. Click ↻ to load databases visible to the account you entered.</div>
     </div>
     <div class="field" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div>
@@ -569,38 +575,92 @@ el('interval-sel').addEventListener('change', ()=>{
 });
 
 // Modal handlers
-el('add-server-btn').addEventListener('click', openModal);
+el('add-server-btn').addEventListener('click', ()=>openModal());
 el('modal-cancel').addEventListener('click', closeModal);
 el('modal-backdrop').addEventListener('click', (e)=>{ if(e.target.id==='modal-backdrop') closeModal(); });
-el('f-auth').addEventListener('change', updateAuthFields);
+el('f-auth').addEventListener('change', ()=>{ updateAuthFields(); updateDatabaseRequired(); });
+el('f-server').addEventListener('input', updateDatabaseRequired);
 el('modal-save').addEventListener('click', saveServer);
+el('f-database-fetch').addEventListener('click', fetchDatabaseList);
 
-function openModal(){
-  el('f-name').value = '';
-  el('f-server').value = '';
-  el('f-auth').value = 'windows';
-  el('f-user').value = '';
+let editingServerId = null;   // null = add mode, otherwise = edit mode
+
+function openModal(existing){
+  editingServerId = existing?.id || null;
+  el('modal-title').textContent = existing ? 'Edit SQL Server' : 'Add SQL Server';
+  el('modal-save').textContent = existing ? 'Test & Update' : 'Test & Save';
+  el('f-name').value = existing?.name || '';
+  el('f-server').value = existing?.server || '';
+  el('f-auth').value = existing?.auth || 'windows';
+  el('f-user').value = existing?.user || '';
   el('f-pw').value = '';
-  el('f-database').value = '';
-  el('f-encrypt').value = 'true';
-  el('f-trustcert').value = 'true';
+  el('f-database').value = existing?.database || '';
+  el('f-encrypt').value = existing?.encrypt === false ? 'false' : 'true';
+  el('f-trustcert').value = existing?.trustCert === false ? 'false' : 'true';
   el('modal-err').style.display = 'none';
+  el('f-database-list').innerHTML = '';
+  el('f-pw-existing-hint').style.display = (existing && existing.hasPassword) ? 'inline' : 'none';
   updateAuthFields();
+  updateDatabaseRequired();
   el('modal-backdrop').classList.add('show');
   setTimeout(()=>el('f-name').focus(), 50);
 }
-function closeModal(){ el('modal-backdrop').classList.remove('show'); }
+function closeModal(){ el('modal-backdrop').classList.remove('show'); editingServerId = null; }
 function updateAuthFields(){
   const a = el('f-auth').value;
-  // Integrated can optionally take a user; interactive/password/sqlauth all take user
   const showUser = a!=='windows';
   const showPw = a==='sqlauth' || a==='azuread-password';
   el('f-user-field').style.display = showUser ? 'block' : 'none';
   el('f-pw-field').style.display = showPw ? 'block' : 'none';
   el('f-user-label').textContent = a.startsWith('azuread') ? 'Entra ID user (user@domain.com)' : 'SQL login';
 }
+function looksAzureSqlDbHost(server){
+  const s = (server||'').trim().toLowerCase();
+  // Azure SQL DB hostnames are *.database.windows.net; MI hostnames also match
+  // but MI does support master. We can't tell them apart from hostname alone.
+  // Conservative: mark database as required whenever it's *.database.windows.net.
+  return /\.database\.windows\.net(,\d+)?$/i.test(s);
+}
+function updateDatabaseRequired(){
+  const required = looksAzureSqlDbHost(el('f-server').value);
+  el('f-database-req').style.display = required ? 'inline' : 'none';
+  el('f-database-hint').textContent = required
+    ? 'Required for Azure SQL Database. Click ↻ to load databases visible to the account you entered.'
+    : 'Optional. Click ↻ to load databases visible to the account you entered.';
+}
+
+async function fetchDatabaseList(){
+  const btn = el('f-database-fetch');
+  const server = el('f-server').value.trim();
+  const auth = el('f-auth').value;
+  if (!server) { showModalErr('Enter server address first.'); return; }
+  btn.disabled = true; btn.textContent = '…';
+  el('modal-err').style.display = 'none';
+  try {
+    const body = {
+      server, auth,
+      user: el('f-user').value.trim(),
+      password: el('f-pw').value,
+      encrypt: el('f-encrypt').value === 'true',
+      trustCert: el('f-trustcert').value === 'true',
+    };
+    const r = await fetch('/api/list-databases', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed');
+    const dl = el('f-database-list');
+    dl.innerHTML = (data.databases||[]).map(n=>`<option value="${esc(n)}"></option>`).join('');
+    if ((data.databases||[]).length === 0) {
+      showModalErr(data.warning ? `No databases listed. ${data.warning}` : 'No databases visible to this account. Type the database name manually.');
+    } else {
+      // Auto-focus into the input so the browser can show the suggestions
+      el('f-database').focus();
+    }
+  } catch(e){ showModalErr('Fetch failed: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '↻'; }
+}
 
 async function saveServer(){
+  const isEdit = !!editingServerId;
   const body = {
     name: el('f-name').value.trim(),
     server: el('f-server').value.trim(),
@@ -612,17 +672,22 @@ async function saveServer(){
     trustCert: el('f-trustcert').value === 'true',
   };
   if(!body.name || !body.server){ showModalErr('Name and server are required.'); return; }
+  if(looksAzureSqlDbHost(body.server) && !body.database){
+    showModalErr('Azure SQL Database requires a specific database name.'); return;
+  }
   const saveBtn = el('modal-save');
   saveBtn.disabled = true; saveBtn.textContent = 'Testing connection…';
   try {
-    const r = await fetch('/api/servers', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const url = isEdit ? '/api/servers/' + encodeURIComponent(editingServerId) : '/api/servers';
+    const method = isEdit ? 'PATCH' : 'POST';
+    const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
     if(!r.ok) throw new Error(data.error||'Failed');
     await loadServers();
-    setActiveServer(data.id);
+    setActiveServer(data.id || editingServerId);
     closeModal();
   } catch(e){ showModalErr(e.message); }
-  finally { saveBtn.disabled = false; saveBtn.textContent = 'Test & Save'; }
+  finally { saveBtn.disabled = false; saveBtn.textContent = isEdit ? 'Test & Update' : 'Test & Save'; }
 }
 function showModalErr(msg){ el('modal-err').textContent = msg; el('modal-err').style.display='block'; }
 
@@ -653,14 +718,23 @@ function renderServerList(){
             <div class="name">${esc(s.name)}</div>
             <div class="meta">${esc(s.server)} · ${authLabel}</div>
           </div>
-          <button class="del" data-del="${esc(s.id)}" title="Remove">×</button>
+          <button class="edit" data-edit="${esc(s.id)}" title="Edit">✎</button>
+      <button class="del" data-del="${esc(s.id)}" title="Remove">×</button>
     </div>`;
   }).join('');
   el('server-list').innerHTML = html || '<div class="empty" style="font-size:12px;">No servers. Click + Add.</div>';
   el('server-list').querySelectorAll('.server-item').forEach(item=>{
     item.addEventListener('click', (e)=>{
-          if(e.target.dataset.del) return;
+          if(e.target.dataset.del || e.target.dataset.edit) return;
           setActiveServer(item.dataset.id);
+    });
+  });
+  el('server-list').querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          const id = btn.dataset.edit;
+          const s = servers.find(x=>x.id===id);
+          if (s) openModal(s);
     });
   });
   el('server-list').querySelectorAll('[data-del]').forEach(btn=>{

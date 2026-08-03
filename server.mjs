@@ -719,6 +719,46 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, list.map(publicView));
     }
 
+    if (p === '/api/list-databases' && req.method === 'POST') {
+      // Probe an ad-hoc server (unsaved) to list databases visible to the login.
+      // Used by the Add/Edit modal to fill the Database dropdown.
+      const body = await readBody(req);
+      if (!body.server || !body.auth) return json(res, 400, { error: 'server and auth required' });
+      const cfg = {
+        id: 'probe-' + crypto.randomBytes(2).toString('hex'),
+        server: body.server, auth: body.auth,
+        user: body.user || '', password: body.password || '',
+        database: '',   // Master default is fine here; Azure SQL will refuse if no access
+        encrypt: body.encrypt !== false,
+        trustCert: body.trustCert !== false,
+      };
+      // For Azure SQL Database, we usually can't list from master; try anyway,
+      // and if it fails, return an empty list (user must type the DB name).
+      const outFile = path.join(TMP_DIR, `dblist-${cfg.id}.out`);
+      const sqlFile = path.join(TMP_DIR, `dblist-${cfg.id}.sql`);
+      await writeFile(sqlFile, `SET NOCOUNT ON;
+SET ANSI_WARNINGS OFF;
+SELECT (SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc='ONLINE' ORDER BY name FOR JSON PATH) AS dbs;`, 'utf8');
+      try {
+        if (cfg.auth === 'azuread-interactive') await ensureAzCliSession(cfg);
+        const useAzCli = cfg.auth === 'azuread-interactive';
+        const args = buildSqlcmdArgs(cfg, ['-l','10','-t','15','-y','0','-Y','0','-w','65535','-i',sqlFile,'-o',outFile], { useAccessToken: useAzCli });
+        await new Promise((resolve, reject) => {
+          execFile(pickSqlcmd(cfg), args, { timeout: 20000, windowsHide: true, encoding: 'utf8' },
+            (err, stdout, stderr) => err ? reject(new Error((stderr||err.message).slice(0,300))) : resolve());
+        });
+        const raw = await readFile(outFile, 'utf8');
+        const firstBrace = Math.min(...[raw.indexOf('{'), raw.indexOf('[')].filter(i => i >= 0));
+        if (firstBrace < 0) return json(res, 200, { databases: [] });
+        const trimmed = raw.slice(firstBrace).trim().replace(/\r?\n/g, '');
+        const parsed = JSON.parse(trimmed);
+        const dbs = Array.isArray(parsed) ? parsed.map(x => x.name) : (parsed.dbs ? JSON.parse(parsed.dbs).map(x=>x.name) : []);
+        return json(res, 200, { databases: dbs });
+      } catch (e) {
+        return json(res, 200, { databases: [], warning: e.message.slice(0,300) });
+      }
+    }
+
     if (p === '/api/servers' && req.method === 'POST') {
       const body = await readBody(req);
       if (!body.name || !body.server || !body.auth) return json(res, 400, { error: 'name, server, auth required' });
@@ -757,6 +797,53 @@ const server = http.createServer(async (req, res) => {
       await saveServers(list);
       cache.delete(id);
       return json(res, 200, { ok: true });
+    }
+
+    if (p.startsWith('/api/servers/') && req.method === 'PATCH') {
+      const id = p.substring('/api/servers/'.length);
+      const body = await readBody(req);
+      const list = await loadServers();
+      const idx = list.findIndex(s => s.id === id);
+      if (idx < 0) return json(res, 404, { error: 'not found' });
+      const current = list[idx];
+      // Build the candidate cfg (in-memory shape with decrypted password for the test)
+      const candidate = {
+        ...current,
+        name: (body.name ?? current.name).slice(0, 60),
+        server: (body.server ?? current.server).slice(0, 200),
+        auth: body.auth ?? current.auth,
+        user: body.user ?? current.user ?? '',
+        database: body.database ?? current.database ?? '',
+        encrypt: body.encrypt ?? current.encrypt !== false,
+        trustCert: body.trustCert ?? current.trustCert !== false,
+      };
+      // Password: if body has a non-empty password field, replace; if empty string
+      // AND passwordEnc is currently non-empty and body.clearPassword===true, wipe.
+      let plainForTest = '';
+      if (typeof body.password === 'string' && body.password.length > 0) {
+        plainForTest = body.password;
+      } else if (body.clearPassword) {
+        candidate.passwordEnc = '';
+      } else {
+        // Keep existing encrypted password; decrypt for test
+        plainForTest = await decryptPassword(current.passwordEnc || '');
+      }
+      // Test connection with the candidate values
+      const testCfg = { ...candidate, password: plainForTest };
+      const t = await testConnection(testCfg);
+      if (!t.ok) return json(res, 400, { error: 'Connection test failed: ' + t.error });
+      // Re-probe engine edition (server may have changed)
+      try { candidate.engineEdition = await probeEngineEdition(testCfg); } catch { /* keep existing */ }
+      // Store: encrypt new password if provided
+      if (plainForTest && !body.clearPassword) {
+        candidate.passwordEnc = await encryptPassword(plainForTest);
+      }
+      // Strip transient plaintext
+      delete candidate.password;
+      list[idx] = candidate;
+      await saveServers(list);
+      cache.delete(id);   // Force fresh collect with new creds
+      return json(res, 200, publicView(candidate));
     }
 
     if (p === '/api/metrics' && req.method === 'GET') {
