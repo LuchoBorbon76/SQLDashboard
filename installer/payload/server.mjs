@@ -887,6 +887,7 @@ SELECT (SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc='ONL
       const cfg = {
         id: body.id || (body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + crypto.randomBytes(2).toString('hex')),
         name: body.name.slice(0, 60),
+        group: (body.group || '').slice(0, 40) || null,
         server: body.server.slice(0, 200),
         auth: body.auth,
         user: body.user || '',
@@ -931,6 +932,7 @@ SELECT (SELECT name FROM sys.databases WHERE database_id > 4 AND state_desc='ONL
       const candidate = {
         ...current,
         name: (body.name ?? current.name).slice(0, 60),
+        group: (body.group === null || body.group === '') ? null : ((body.group ?? current.group) ? String(body.group ?? current.group).slice(0, 40) : null),
         server: (body.server ?? current.server).slice(0, 200),
         auth: body.auth ?? current.auth,
         user: body.user ?? current.user ?? '',
@@ -1108,6 +1110,34 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
       if (!id) return json(res, 400, { error: 'serverId required' });
       const arr = await loadHistory(id);
       return json(res, 200, arr.slice(-limit));
+    }
+
+    // ==============================
+    // Kill session (requires ALTER ANY CONNECTION on the target server)
+    // ==============================
+    if (p === '/api/kill-session' && req.method === 'POST') {
+      const body = await readBody(req);
+      const sid = Number(body.sessionId);
+      if (!body.serverId || !Number.isInteger(sid) || sid <= 50) {
+        return json(res, 400, { error: 'valid serverId and sessionId >= 51 required' });
+      }
+      const list = await loadServers();
+      const s = list.find(x => x.id === body.serverId);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      try {
+        const cfg = await resolveServer(s);
+        if (cfg.auth === 'azuread-interactive') await ensureAzCliSession(cfg);
+        const useAzCli = cfg.auth === 'azuread-interactive';
+        const args = buildSqlcmdArgs(cfg, ['-l','10','-t','15','-Q',`KILL ${sid}`], { useAccessToken: useAzCli });
+        await new Promise((resolve, reject) => {
+          execFile(pickSqlcmd(cfg), args, { timeout: 20000, windowsHide: true, encoding: 'utf8' },
+            (err, stdout, stderr) => err ? reject(new Error((stderr||err.message).slice(0,300))) : resolve());
+        });
+        cache.delete(body.serverId);
+        return json(res, 200, { ok: true, killed: sid });
+      } catch (e) {
+        return json(res, 400, { error: e.message.slice(0, 400) });
+      }
     }
 
     if (p === '/health') {

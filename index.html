@@ -107,6 +107,14 @@ header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
 .kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--cp-text-muted);font-weight:600;padding-right:60px;line-height:1.3;}
 .kpi .value{font-size:26px;font-weight:600;margin-top:6px;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;}
 .kpi .hint{font-size:12px;color:var(--cp-text-soft);margin-top:4px;}
+.kpi .spark{position:absolute;bottom:6px;right:8px;width:60px;height:20px;opacity:0.85;pointer-events:none;}
+.kpi .spark path{fill:none;stroke:var(--cp-accent);stroke-width:1.5;}
+.kpi.good .spark path{stroke:var(--cp-success);}
+.kpi.warn .spark path{stroke:var(--cp-warning);}
+.kpi.crit .spark path{stroke:var(--cp-danger);}
+.freshness{color:var(--cp-text-muted);font-variant-numeric:tabular-nums;}
+.group-header{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--cp-text-muted);padding:12px 8px 6px;border-top:1px solid var(--cp-border);margin-top:4px;}
+.server-list > .group-header:first-child{border-top:none;margin-top:0;padding-top:6px;}
 .kpi.good{border-left:3px solid var(--cp-success);}
 .kpi.warn{border-left:3px solid var(--cp-warning);}
 .kpi.crit{border-left:3px solid var(--cp-danger);}
@@ -315,7 +323,10 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
           </select>
         </label>
         <button class="btn ghost" id="pause-btn" title="Pause auto-refresh">⏸ Pause</button>
+        <button class="btn ghost" id="alerts-btn" title="View alert history and active issues"><span id="alerts-count-badge" style="display:none;background:var(--cp-danger);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;margin-right:4px;">0</span>🔔 Alerts</button>
         <button class="btn ghost" id="counters-btn" title="Manage custom counters">🎯 Counters</button>
+        <button class="btn ghost" id="snapshot-btn" title="Save the current sample as a baseline to compare against">📸 Snapshot</button>
+        <button class="btn ghost" id="export-btn" title="Download current metrics as JSON">⬇ Export</button>
         <button class="btn" id="refresh-btn">Refresh now</button>
         <div class="live-indicator">
           <div class="live-dot" id="live-dot"></div>
@@ -405,6 +416,12 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
     <div class="field">
       <label>Display name</label>
       <input type="text" id="f-name" placeholder="Prod SQL West">
+    </div>
+    <div class="field">
+      <label>Group (optional)</label>
+      <input type="text" id="f-group" list="f-group-list" placeholder="Production / Staging / Lab" maxlength="40">
+      <datalist id="f-group-list"></datalist>
+      <div class="hint">Servers with the same group name are grouped together in the sidebar.</div>
     </div>
     <div class="field">
       <label>Server address</label>
@@ -521,6 +538,24 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
 
     <div class="actions">
       <button class="btn ghost" id="counters-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Alerts modal -->
+<div class="modal-backdrop" id="alerts-backdrop">
+  <div class="modal modal-lg">
+    <h2>🔔 Alerts</h2>
+    <div class="sub">Live health issues + a rolling log of state transitions (last 100 per server, stored in your browser).</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn ghost" id="alerts-tab-current">Active (<span id="alerts-current-count">0</span>)</button>
+      <button class="btn ghost" id="alerts-tab-history" style="opacity:0.6;">History (<span id="alerts-history-count">0</span>)</button>
+      <div style="flex:1;"></div>
+      <button class="btn ghost" id="alerts-clear" title="Clear the history log for this server">Clear log</button>
+    </div>
+    <div id="alerts-body" style="min-height:150px;"></div>
+    <div class="actions">
+      <button class="btn ghost" id="alerts-close">Close</button>
     </div>
   </div>
 </div>
@@ -665,6 +700,136 @@ el('f-database-fetch').addEventListener('click', fetchDatabaseList);
 // Custom counters manager
 // -------------------------------------------------------
 el('counters-btn').addEventListener('click', openCountersModal);
+el('snapshot-btn').addEventListener('click', () => {
+  const st = serverState.get(activeServerId);
+  if (!st || !st.data) { alert('No data yet.'); return; }
+  st.snapshot = { data: st.data, at: Date.now() };
+  localStorage.setItem('snapshot-'+activeServerId, JSON.stringify(st.snapshot));
+  el('snapshot-btn').textContent = '📸 Snapshot ✓';
+  setTimeout(() => { el('snapshot-btn').textContent = '📸 Snapshot'; }, 2000);
+  // Re-render with snapshot as prev for delta comparison
+  render(st.data, st.snapshot.data);
+});
+el('export-btn').addEventListener('click', () => {
+  const st = serverState.get(activeServerId);
+  if (!st || !st.data) { alert('No data yet.'); return; }
+  const s = servers.find(x=>x.id===activeServerId);
+  const payload = {
+    exported_at: new Date().toISOString(),
+    server: { id: s.id, name: s.name, server: s.server, engine: st.data.engine, engine_edition: st.data.engine_edition },
+    health: computeHealth(st.data),
+    metrics: st.data,
+    history: st.history || [],
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${s.name.replace(/[^A-Za-z0-9._-]/g,'_')}-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+});
+
+// -------------------------------------------------------
+// Alerts: state-transition log per server (localStorage)
+// -------------------------------------------------------
+let alertsTab = 'current'; // 'current' | 'history'
+el('alerts-btn').addEventListener('click', openAlertsModal);
+el('alerts-close').addEventListener('click', () => el('alerts-backdrop').classList.remove('show'));
+el('alerts-tab-current').addEventListener('click', () => { alertsTab = 'current'; renderAlertsBody(); });
+el('alerts-tab-history').addEventListener('click', () => { alertsTab = 'history'; renderAlertsBody(); });
+el('alerts-clear').addEventListener('click', async () => {
+  if (!(await confirmDialog('Clear alert log?', 'This removes the stored history entries for this server from your browser. Active issues are recomputed on the next refresh.'))) return;
+  localStorage.removeItem('alerts-'+activeServerId);
+  renderAlertsBody();
+});
+let alertsModalMouseDownTarget = null;
+el('alerts-backdrop').addEventListener('mousedown', (e)=>{ alertsModalMouseDownTarget = e.target; });
+el('alerts-backdrop').addEventListener('mouseup', (e)=>{
+  if(alertsModalMouseDownTarget && alertsModalMouseDownTarget.id==='alerts-backdrop' && e.target.id==='alerts-backdrop') el('alerts-backdrop').classList.remove('show');
+  alertsModalMouseDownTarget = null;
+});
+
+function loadAlertLog(id){
+  try { return JSON.parse(localStorage.getItem('alerts-'+id) || '[]'); } catch { return []; }
+}
+function saveAlertLog(id, log){
+  const trimmed = log.slice(-100);
+  localStorage.setItem('alerts-'+id, JSON.stringify(trimmed));
+}
+
+// Compare current health issues vs previous set; emit log entries for new items and resolved items.
+function recordAlertTransitions(serverId, health, prevHealth){
+  const log = loadAlertLog(serverId);
+  const nowIso = new Date().toISOString();
+  const prevSet = new Set([...(prevHealth?.critical||[]), ...(prevHealth?.warning||[])]);
+  const curSet  = new Set([...health.critical, ...health.warning]);
+  // Newly-triggered
+  for (const msg of health.critical) if (!prevSet.has(msg)) log.push({at:nowIso, level:'critical', event:'raised', msg});
+  for (const msg of health.warning)  if (!prevSet.has(msg)) log.push({at:nowIso, level:'warning',  event:'raised', msg});
+  // Newly-resolved
+  for (const msg of (prevHealth?.critical||[])) if (!curSet.has(msg)) log.push({at:nowIso, level:'critical', event:'resolved', msg});
+  for (const msg of (prevHealth?.warning||[]))  if (!curSet.has(msg)) log.push({at:nowIso, level:'warning',  event:'resolved', msg});
+  if (log.length > 0) saveAlertLog(serverId, log);
+  updateAlertBadge();
+}
+function updateAlertBadge(){
+  if (!activeServerId) { el('alerts-count-badge').style.display = 'none'; return; }
+  const st = serverState.get(activeServerId);
+  if (!st?.data) { el('alerts-count-badge').style.display = 'none'; return; }
+  const h = computeHealth(st.data);
+  const n = h.critical.length + h.warning.length;
+  const badge = el('alerts-count-badge');
+  if (n > 0) { badge.textContent = n; badge.style.display = 'inline-block'; badge.style.background = h.critical.length ? 'var(--cp-danger)' : 'var(--cp-warning)'; }
+  else badge.style.display = 'none';
+}
+
+function openAlertsModal(){
+  if (!activeServerId) { alert('Select a server first.'); return; }
+  alertsTab = 'current';
+  el('alerts-backdrop').classList.add('show');
+  renderAlertsBody();
+}
+function renderAlertsBody(){
+  el('alerts-tab-current').style.opacity = alertsTab === 'current' ? '1' : '0.6';
+  el('alerts-tab-history').style.opacity = alertsTab === 'history' ? '1' : '0.6';
+  const st = serverState.get(activeServerId);
+  const log = loadAlertLog(activeServerId);
+  el('alerts-history-count').textContent = log.length;
+
+  if (!st?.data) {
+    el('alerts-current-count').textContent = '0';
+    el('alerts-body').innerHTML = '<div class="hint">No data yet.</div>';
+    return;
+  }
+  const h = computeHealth(st.data);
+  el('alerts-current-count').textContent = (h.critical.length + h.warning.length);
+
+  if (alertsTab === 'current') {
+    if (h.critical.length + h.warning.length === 0) {
+      el('alerts-body').innerHTML = '<div style="padding:20px;text-align:center;color:var(--cp-success);"><b>✓ No active alerts.</b> This instance is healthy.</div>';
+      return;
+    }
+    const rowsC = h.critical.map(m => `<div style="padding:8px;border-left:3px solid var(--cp-danger);background:rgba(220,38,38,0.06);margin-bottom:6px;border-radius:4px;"><b style="color:var(--cp-danger);">CRITICAL</b> ${esc(m)}</div>`).join('');
+    const rowsW = h.warning.map(m => `<div style="padding:8px;border-left:3px solid var(--cp-warning);background:rgba(217,119,6,0.06);margin-bottom:6px;border-radius:4px;"><b style="color:var(--cp-warning);">WARNING</b> ${esc(m)}</div>`).join('');
+    el('alerts-body').innerHTML = rowsC + rowsW;
+  } else {
+    if (log.length === 0) {
+      el('alerts-body').innerHTML = '<div class="hint">No transitions logged yet. Log grows as alerts are raised and resolved.</div>';
+      return;
+    }
+    const rows = log.slice().reverse().map(e => {
+      const colour = e.level === 'critical' ? 'var(--cp-danger)' : 'var(--cp-warning)';
+      const icon = e.event === 'raised' ? '▲' : '✓';
+      const eventLabel = e.event === 'raised' ? 'RAISED' : 'RESOLVED';
+      return `<div style="padding:6px 8px;border-bottom:1px solid var(--cp-border);display:flex;gap:10px;align-items:baseline;">
+        <span style="color:${colour};font-weight:600;min-width:75px;">${icon} ${eventLabel}</span>
+        <span style="color:var(--cp-text-muted);font-size:11px;min-width:160px;font-variant-numeric:tabular-nums;">${new Date(e.at).toLocaleString()}</span>
+        <span style="flex:1;">${esc(e.msg)}</span>
+      </div>`;
+    }).join('');
+    el('alerts-body').innerHTML = '<div style="max-height:400px;overflow-y:auto;">'+rows+'</div>';
+  }
+}
 el('counters-close').addEventListener('click', () => el('counters-backdrop').classList.remove('show'));
 let ccModalMouseDownTarget = null;
 el('counters-backdrop').addEventListener('mousedown', (e)=>{ ccModalMouseDownTarget = e.target; });
@@ -802,6 +967,10 @@ function openModal(existing){
   el('modal-title').textContent = existing ? 'Edit SQL Server' : 'Add SQL Server';
   el('modal-save').textContent = existing ? 'Test & Update' : 'Test & Save';
   el('f-name').value = existing?.name || '';
+  el('f-group').value = existing?.group || '';
+  // Populate group datalist with existing distinct groups
+  const groups = [...new Set(servers.map(x=>x.group).filter(Boolean))].sort();
+  el('f-group-list').innerHTML = groups.map(g=>`<option value="${esc(g)}"></option>`).join('');
   el('f-server').value = existing?.server || '';
   el('f-auth').value = existing?.auth || 'windows';
   el('f-user').value = existing?.user || '';
@@ -894,6 +1063,7 @@ async function saveServer(){
   const isEdit = !!editingServerId;
   const body = {
     name: el('f-name').value.trim(),
+    group: el('f-group').value.trim() || null,
     server: el('f-server').value.trim(),
     auth: el('f-auth').value,
     user: el('f-user').value.trim(),
@@ -932,7 +1102,18 @@ async function loadServers(){
 
 function renderServerList(){
   const now = Date.now();
-  const html = servers.map(s => {
+  // Group servers by group field; ungrouped last
+  const groups = new Map();
+  for (const s of servers) {
+    const key = s.group || '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+  // Named groups first (alphabetical), then ungrouped
+  const orderedKeys = [...groups.keys()].filter(k => k !== '').sort();
+  if (groups.has('')) orderedKeys.push('');
+
+  const renderCard = (s) => {
     const initials = s.name.split(/[\s-_]/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase() || 'S';
     const authLabel = ({windows:'WinAuth', sqlauth:'SQL', 'azuread-integrated':'Entra', 'azuread-password':'Entra-PW', 'azuread-interactive':'Entra-MFA'})[s.auth] || s.auth;
     const st = serverState.get(s.id);
@@ -955,7 +1136,18 @@ function renderServerList(){
           <button class="edit" data-edit="${esc(s.id)}" title="Edit">✎</button>
       <button class="del" data-del="${esc(s.id)}" title="Remove">×</button>
     </div>`;
-  }).join('');
+  };
+
+  let html = '';
+  const showHeaders = orderedKeys.length > 1 || (orderedKeys.length === 1 && orderedKeys[0] !== '');
+  for (const key of orderedKeys) {
+    if (showHeaders && key !== '') {
+      html += `<div class="group-header">${esc(key)}</div>`;
+    } else if (showHeaders && key === '') {
+      html += `<div class="group-header">Ungrouped</div>`;
+    }
+    html += groups.get(key).map(renderCard).join('');
+  }
   el('server-list').innerHTML = html || '<div class="empty" style="font-size:12px;">No servers. Click + Add.</div>';
   el('server-list').querySelectorAll('.server-item').forEach(item=>{
     item.addEventListener('click', (e)=>{
@@ -1022,8 +1214,22 @@ function setActiveServer(id){
   countdown = refreshSeconds;
   renderServerList();
   const st = stateFor(id);
+  // Restore saved baseline snapshot from previous session, if any
+  if (!st.snapshot) {
+    try {
+      const raw = localStorage.getItem('snapshot-'+id);
+      if (raw) st.snapshot = JSON.parse(raw);
+    } catch {}
+  }
+  // Fetch history for sparklines (async, will re-render when it arrives)
+  if (!st.historyLoaded) {
+    fetch('/api/history?serverId='+encodeURIComponent(id)+'&limit=120').then(r=>r.json()).then(h=>{
+      st.history = Array.isArray(h) ? h : [];
+      st.historyLoaded = true;
+      if (activeServerId === id && st.data) render(st.data, st.prevData);
+    }).catch(()=>{});
+  }
   if (st.data) {
-    // Instantly show cached snapshot from the last time this server was viewed
     render(st.data, st.prevData);
     const ageS = Math.round((Date.now() - st.lastFetchAt)/1000);
     setStatus('stale', `Cached (${ageS}s old) · refreshing…`);
@@ -1068,6 +1274,31 @@ async function fetchMetrics(){
     st.data = data;
     st.lastFetchAt = Date.now();
     st.lastError = null;
+    // Extend local history buffer (mirrors what the server appended to disk)
+    st.history = st.history || [];
+    const bhr = data.instance?.buffer_cache_hit_ratio_base > 0 ? (data.instance.buffer_cache_hit_ratio*100/data.instance.buffer_cache_hit_ratio_base) : 100;
+    const customVals = {};
+    (data.custom_counters||[]).forEach(cc=>{ if(typeof cc.value==='number') customVals[cc.id] = cc.value; });
+    st.history.push({
+      t: Date.now(),
+      ple: data.instance?.page_life_expectancy ?? null,
+      bhr: Number(bhr.toFixed(2)),
+      memMb: data.instance?.memory_in_use_mb ?? null,
+      sessions: data.instance?.user_sessions ?? null,
+      active: data.instance?.active_requests ?? null,
+      cpuPct: data.instance?.avg_cpu_percent ?? null,
+      memPct: data.instance?.avg_memory_percent ?? null,
+      ioPct: data.instance?.avg_data_io_percent ?? null,
+      logPct: data.instance?.avg_log_write_percent ?? null,
+      custom: customVals,
+    });
+    if (st.history.length > 120) st.history.splice(0, st.history.length - 120);
+    // Alert transitions (compare current health vs previous)
+    try {
+      const curHealth = computeHealth(data);
+      const prevHealth = st.prevData ? computeHealth(st.prevData) : null;
+      recordAlertTransitions(requestedId, curHealth, prevHealth);
+    } catch {}
     // Only render if the user is still looking at this server
     if (requestedId === activeServerId) {
       render(st.data, st.prevData);
@@ -1075,6 +1306,7 @@ async function fetchMetrics(){
       if(!paused) setStatus('ok', `Updated ${new Date().toLocaleTimeString()}`);
     }
     renderServerList();
+    updateAlertBadge();
   } catch(e){
     const st = stateFor(requestedId); st.lastError = e.message;
     if (requestedId === activeServerId) {
@@ -1260,21 +1492,51 @@ function counterCls(cc) {
   if ((cc.warnGt != null && v >= cc.warnGt) || (cc.warnLt != null && v <= cc.warnLt)) return 'warn';
   return '';
 }
-function renderCustomCounterCards(DATA) {
+function renderCustomCounterCards(DATA, hist) {
   const ccs = DATA.custom_counters || [];
   if (ccs.length === 0) return '';
+  hist = hist || (serverState.get(DATA.server_id)?.history) || [];
   return ccs.map(cc => {
     const cls = counterCls(cc);
     const val = cc.error ? '—' : (typeof cc.value === 'number' ? fmtInt(cc.value) : esc(String(cc.value ?? '—')));
     const unit = cc.error ? '' : esc(cc.unit || '');
     const hint = cc.error ? `<span style="color:var(--cp-danger)">${esc(cc.error)}</span>` : esc(cc.description || 'Custom counter');
+    // Build spark from history.custom[cc.id]
+    const values = hist.map(s => (s.custom && typeof s.custom[cc.id] === 'number') ? s.custom[cc.id] : null);
+    const spark = renderSparklineFromValues(values);
     return `<div class="kpi ${cls}">
       <div class="badge ${cls}">CUSTOM</div>
       <div class="label">${esc(cc.name)}</div>
       <div class="value">${val}${unit ? ' <span style="font-size:14px;color:var(--cp-text-secondary);">'+unit+'</span>' : ''}</div>
       <div class="hint">${hint}</div>
+      ${spark}
     </div>`;
   }).join('');
+}
+
+function renderSparkline(hist, field) {
+  if (!Array.isArray(hist) || hist.length < 2) return '';
+  const values = hist.map(s => (typeof s[field] === 'number') ? s[field] : null);
+  return renderSparklineFromValues(values);
+}
+function renderSparklineFromValues(values) {
+  const nums = values.filter(v => typeof v === 'number' && Number.isFinite(v));
+  if (nums.length < 2) return '';
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const range = max - min || 1;
+  const w = 60, h = 20;
+  const step = values.length > 1 ? w / (values.length - 1) : w;
+  let d = '';
+  let started = false;
+  values.forEach((v, i) => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return;
+    const x = i * step;
+    const y = h - ((v - min) / range) * h;
+    d += (started ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+    started = true;
+  });
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${d}"/></svg>`;
 }
 
 function renderHealth(DATA){
@@ -1330,12 +1592,12 @@ function render(DATA, PREV){
     let kpis;
     if (isAzure) {
       kpis = [
-        {label:"Avg CPU %", value:(i.avg_cpu_percent??0).toFixed(1)+"%", hint:"Last resource-stats sample", cls:(i.avg_cpu_percent||0)>=80?"crit":(i.avg_cpu_percent||0)>=60?"warn":"good", d:delta(i.avg_cpu_percent, p?.avg_cpu_percent)},
-        {label:"Avg Memory %", value:(i.avg_memory_percent??0).toFixed(1)+"%", hint:"Database resource pool", cls:(i.avg_memory_percent||0)>=90?"warn":"good", d:delta(i.avg_memory_percent, p?.avg_memory_percent)},
-        {label:"Data I/O %", value:(i.avg_data_io_percent??0).toFixed(1)+"%", hint:"Read+write vs. limit", cls:(i.avg_data_io_percent||0)>=80?"warn":"good", d:delta(i.avg_data_io_percent, p?.avg_data_io_percent)},
-        {label:"Log Write %", value:(i.avg_log_write_percent??0).toFixed(1)+"%", hint:"Log throughput vs. limit", cls:(i.avg_log_write_percent||0)>=80?"warn":"good", d:delta(i.avg_log_write_percent, p?.avg_log_write_percent)},
-        {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:"", d:delta(i.user_sessions, p?.user_sessions)},
-        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests)},
+        {label:"Avg CPU %", value:(i.avg_cpu_percent??0).toFixed(1)+"%", hint:"Last resource-stats sample", cls:(i.avg_cpu_percent||0)>=80?"crit":(i.avg_cpu_percent||0)>=60?"warn":"good", d:delta(i.avg_cpu_percent, p?.avg_cpu_percent), spark:'cpuPct'},
+        {label:"Avg Memory %", value:(i.avg_memory_percent??0).toFixed(1)+"%", hint:"Database resource pool", cls:(i.avg_memory_percent||0)>=90?"warn":"good", d:delta(i.avg_memory_percent, p?.avg_memory_percent), spark:'memPct'},
+        {label:"Data I/O %", value:(i.avg_data_io_percent??0).toFixed(1)+"%", hint:"Read+write vs. limit", cls:(i.avg_data_io_percent||0)>=80?"warn":"good", d:delta(i.avg_data_io_percent, p?.avg_data_io_percent), spark:'ioPct'},
+        {label:"Log Write %", value:(i.avg_log_write_percent??0).toFixed(1)+"%", hint:"Log throughput vs. limit", cls:(i.avg_log_write_percent||0)>=80?"warn":"good", d:delta(i.avg_log_write_percent, p?.avg_log_write_percent), spark:'logPct'},
+        {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:"", d:delta(i.user_sessions, p?.user_sessions), spark:'sessions'},
+        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests), spark:'active'},
         {label:"Engine Edition", value:i.engine_edition===5?'Azure SQL':i.engine_edition===8?'Managed Inst':(i.engine_edition||'?'), hint:i.edition||''},
         {label:"Product Version", value:i.product_version||'?', hint:"SQL Server engine build"},
       ];
@@ -1344,23 +1606,25 @@ function render(DATA, PREV){
       const bhr = i.buffer_cache_hit_ratio_base > 0 ? (i.buffer_cache_hit_ratio*100/i.buffer_cache_hit_ratio_base) : 100;
       const pBhr = p && p.buffer_cache_hit_ratio_base>0 ? (p.buffer_cache_hit_ratio*100/p.buffer_cache_hit_ratio_base) : null;
       kpis = [
-        {label:"Page Life Expectancy", value:fmtInt(i.page_life_expectancy||0)+"s", hint:pleGood?"Healthy (≥300s)":"Below 300s target", cls:pleGood?"good":"warn", badge:pleGood?"OK":"LOW", d:delta(i.page_life_expectancy, p?.page_life_expectancy, true)},
-        {label:"Buffer Cache Hit Ratio", value:bhr.toFixed(2)+"%", hint:"Target >98%", cls:bhr>=98?"good":"warn", badge:bhr>=98?"OK":"LOW", d:delta(bhr.toFixed(2), pBhr!=null?pBhr.toFixed(2):null, true)},
-        {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:"", d:delta(i.user_sessions, p?.user_sessions)},
-        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests)},
-        {label:"Memory In Use", value:((i.memory_in_use_mb||0)/1024).toFixed(2)+" GB", hint:`Target ${((i.target_memory_mb||0)/1024).toFixed(1)} GB / Host ${((i.physical_memory_mb||0)/1024).toFixed(1)} GB`, d:delta(i.memory_in_use_mb, p?.memory_in_use_mb)},
+        {label:"Page Life Expectancy", value:fmtInt(i.page_life_expectancy||0)+"s", hint:pleGood?"Healthy (≥300s)":"Below 300s target", cls:pleGood?"good":"warn", badge:pleGood?"OK":"LOW", d:delta(i.page_life_expectancy, p?.page_life_expectancy, true), spark:'ple'},
+        {label:"Buffer Cache Hit Ratio", value:bhr.toFixed(2)+"%", hint:"Target >98%", cls:bhr>=98?"good":"warn", badge:bhr>=98?"OK":"LOW", d:delta(bhr.toFixed(2), pBhr!=null?pBhr.toFixed(2):null, true), spark:'bhr'},
+        {label:"Sessions / Connections", value:`${i.user_sessions||0} / ${i.connections||0}`, hint:`${i.active_requests||0} active, ${i.blocked_requests||0} blocked`, cls:"", d:delta(i.user_sessions, p?.user_sessions), spark:'sessions'},
+        {label:"Active Requests", value:i.active_requests||0, hint:`${i.blocked_requests||0} blocked`, cls:(i.blocked_requests||0)>0?"crit":"", d:delta(i.active_requests, p?.active_requests), spark:'active'},
+        {label:"Memory In Use", value:((i.memory_in_use_mb||0)/1024).toFixed(2)+" GB", hint:`Target ${((i.target_memory_mb||0)/1024).toFixed(1)} GB / Host ${((i.physical_memory_mb||0)/1024).toFixed(1)} GB`, d:delta(i.memory_in_use_mb, p?.memory_in_use_mb), spark:'memMb'},
         {label:"Batch Requests (cum)", value:fmtInt(i.batch_requests_per_sec_cum||0), hint:`Compilations: ${fmtInt(i.compilations_cum||0)}`, cls:"", d:delta(i.batch_requests_per_sec_cum, p?.batch_requests_per_sec_cum)},
         {label:"CPU Cores", value:i.cpu_count||'?', hint:"Logical schedulers"},
         {label:"Uptime", value:i.uptime_min!=null?(i.uptime_min/60).toFixed(1)+"h":'?', hint:`Started ${fmtDate(i.sqlserver_start_time)}`},
       ];
     }
+    const hist = (serverState.get(DATA.server_id)?.history) || [];
     el('kpis').innerHTML = kpis.map(k=>`
       <div class="kpi ${k.cls||''}">
         ${k.d && k.d.txt ? `<div class="delta ${k.d.cls}">${k.d.txt}</div>` : (k.badge?`<div class="badge ${k.cls||''}">${k.badge}</div>`:'')}
         <div class="label">${k.label}</div>
         <div class="value">${k.value}</div>
         <div class="hint">${k.hint||''}</div>
-      </div>`).join('') + renderCustomCounterCards(DATA);
+        ${k.spark ? renderSparkline(hist, k.spark) : ''}
+      </div>`).join('') + renderCustomCounterCards(DATA, hist);
 
     // Narrative — sourced from computeHealth() so it always matches the semaphore
     const h = computeHealth(DATA);
@@ -1519,7 +1783,7 @@ function render(DATA, PREV){
       el('active').innerHTML = '<div class="empty">No active user requests at snapshot time.</div>';
     } else {
       el('active').innerHTML = `<table>
-        <thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Program</th><th>DB</th><th>Cmd</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Query</th></tr></thead>
+        <thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Program</th><th>DB</th><th>Cmd</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Query</th><th></th></tr></thead>
         <tbody>${ac.map(a=>`<tr>
           <td class="mono">${esc(a.session_id)}</td>
           <td>${esc(a.login_name)}</td>
@@ -1531,7 +1795,18 @@ function render(DATA, PREV){
           <td class="num">${fmtInt(a.wait_ms)}</td>
           <td>${a.blocked_by?`<span class="pill crit">${a.blocked_by}</span>`:'-'}</td>
           <td><div class="query-text" title="${esc(a.query_text||'')}">${esc(a.query_text||'')}</div></td>
+          <td><button class="btn ghost" data-kill="${esc(a.session_id)}" style="padding:2px 8px;font-size:11px;color:var(--cp-danger);" title="KILL this session">☠</button></td>
         </tr>`).join('')}</tbody></table>`;
+      el('active').querySelectorAll('[data-kill]').forEach(b => {
+        b.addEventListener('click', async () => {
+          const spid = b.dataset.kill;
+          if (!(await confirmDialog(`KILL session ${spid}?`, 'This immediately terminates the session on the SQL Server. Any uncommitted work is rolled back.'))) return;
+          const r = await fetch('/api/kill-session', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({serverId: activeServerId, sessionId: Number(spid)})});
+          const d = await r.json();
+          if (!r.ok) { alert('Kill failed: ' + (d.error || 'unknown')); return; }
+          fetchMetrics();
+        });
+      });
     }
   } catch(e){
     console.error('Render error:', e);
