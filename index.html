@@ -254,8 +254,24 @@ tr:hover td{background:var(--cp-surface-soft);}
 .detail-meta .mini-kpi .l{font-size:10px;}
 /* Detail modal + html-query-plan tooltip visibility fixes */
 .detail-meta .mini-kpi .v{font-size:15px;margin-top:0;}
-/* Tooltip lives inside .qp-node — while hovering we re-parent it to <body> and give it high z-index */
-body > .qp-tt{position:fixed !important;z-index:99999 !important;background:#fffde7 !important;border:1px solid #999 !important;border-radius:4px !important;padding:6px 8px !important;box-shadow:0 8px 24px rgba(0,0,0,0.35) !important;pointer-events:none;color:#111 !important;display:block !important;}
+/* Tooltip lives inside .qp-node — while hovering we re-parent it to <body>.
+   Isolate it from theme table/typography CSS by resetting all inherited styles. */
+body > .qp-tt{
+  all: revert;
+  position:fixed !important;z-index:99999 !important;
+  background:#fffde7 !important;color:#111 !important;
+  border:1px solid #a5a5a5 !important;border-radius:4px !important;
+  padding:8px 10px !important;
+  box-shadow:0 8px 24px rgba(0,0,0,0.35) !important;
+  pointer-events:none;display:block !important;
+  font-family:'Segoe UI',Arial,sans-serif !important;font-size:12px !important;line-height:1.35 !important;
+  max-width:600px !important;
+}
+body > .qp-tt *{color:#111 !important;background:transparent !important;font-family:'Segoe UI',Arial,sans-serif !important;}
+body > .qp-tt table{border-collapse:collapse !important;margin:4px 0 !important;width:auto !important;}
+body > .qp-tt th, body > .qp-tt td{border:none !important;border-bottom:1px solid #ccc !important;padding:2px 8px 2px 0 !important;font-size:11.5px !important;text-align:left !important;font-weight:normal !important;text-transform:none !important;letter-spacing:normal !important;}
+body > .qp-tt th{font-weight:600 !important;color:#333 !important;padding-right:14px !important;}
+body > .qp-tt b, body > .qp-tt strong{font-weight:600 !important;color:#000 !important;}
 /* html-query-plan tooltips must float above our modal (backdrop z-index=100) */
 .qp-tt, .qp-tooltip, div.qp-node-tooltip{z-index:9999 !important;position:fixed !important;}
 .code-block{background:var(--cp-bg);border:1px solid var(--cp-border);border-radius:8px;padding:12px;font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.5;color:var(--cp-text);white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto;}
@@ -2341,46 +2357,45 @@ async function renderVisualPlan(xml){
     if (typeof QP === 'undefined' || !QP.showPlan) throw new Error('QP library missing after load');
     host.innerHTML = '';
     QP.showPlan(host, xml);
-    // Reparent tooltips to <body> on hover so they escape the modal's clipping context
+    // Reparent tooltips to <body> on hover so they escape the modal's clipping context.
+    // Position ONCE (anchored to the node) so it doesn't jump while the cursor moves.
     let activeTt = null;
     let ttPlaceholder = null;
+    const restore = () => {
+      if (activeTt && ttPlaceholder) {
+        ttPlaceholder.replaceWith(activeTt);
+        activeTt.style.cssText = activeTt.dataset.origStyle || '';
+        activeTt = null; ttPlaceholder = null;
+      }
+    };
     host.querySelectorAll('.qp-node').forEach(node => {
       const tt = node.querySelector(':scope > .qp-tt');
       if (!tt) return;
-      const moveOver = (e) => {
-        if (activeTt !== tt) {
-          if (activeTt && ttPlaceholder) {
-            // Return previous tooltip
-            ttPlaceholder.replaceWith(activeTt);
-            activeTt.style.cssText = activeTt.dataset.origStyle || '';
-          }
-          activeTt = tt;
-          ttPlaceholder = document.createComment('qp-tt-placeholder');
-          tt.dataset.origStyle = tt.style.cssText;
-          tt.parentNode.insertBefore(ttPlaceholder, tt);
-          document.body.appendChild(tt);
-        }
-        // Position near cursor, but stay in viewport
-        const pad = 12;
-        const w = tt.offsetWidth || 300;
-        const h = tt.offsetHeight || 200;
-        let x = e.clientX + pad;
-        let y = e.clientY + pad;
-        if (x + w > window.innerWidth - 8) x = e.clientX - w - pad;
-        if (y + h > window.innerHeight - 8) y = e.clientY - h - pad;
-        tt.style.left = Math.max(4, x) + 'px';
-        tt.style.top = Math.max(4, y) + 'px';
-      };
-      const leave = () => {
-        if (activeTt === tt && ttPlaceholder) {
-          ttPlaceholder.replaceWith(tt);
-          tt.style.cssText = tt.dataset.origStyle || '';
-          activeTt = null; ttPlaceholder = null;
-        }
-      };
-      node.addEventListener('mouseenter', moveOver);
-      node.addEventListener('mousemove', moveOver);
-      node.addEventListener('mouseleave', leave);
+      node.addEventListener('mouseenter', () => {
+        if (activeTt) restore();
+        ttPlaceholder = document.createComment('qp-tt-placeholder');
+        tt.dataset.origStyle = tt.style.cssText;
+        tt.parentNode.insertBefore(ttPlaceholder, tt);
+        document.body.appendChild(tt);
+        activeTt = tt;
+        // Measure once now that it's in body and visible
+        requestAnimationFrame(() => {
+          const rect = node.getBoundingClientRect();
+          const w = tt.offsetWidth || 320;
+          const h = tt.offsetHeight || 220;
+          const pad = 10;
+          // Prefer to the right of the node; flip if it doesn't fit
+          let x = rect.right + pad;
+          if (x + w > window.innerWidth - 8) x = rect.left - w - pad;
+          if (x < 8) x = Math.max(8, window.innerWidth - w - 8);
+          // Prefer aligned with node top; flip up if it doesn't fit
+          let y = rect.top;
+          if (y + h > window.innerHeight - 8) y = Math.max(8, window.innerHeight - h - 8);
+          tt.style.left = x + 'px';
+          tt.style.top = y + 'px';
+        });
+      });
+      node.addEventListener('mouseleave', restore);
     });
     if (status) status.textContent = 'Rendered · hover for details';
     // Zoom controls
