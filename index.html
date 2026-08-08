@@ -2218,8 +2218,8 @@ function render(DATA, PREV){
     if(ac.length===0){
       el('active').innerHTML = '<div class="empty">No active user requests at snapshot time.</div>';
     } else {
-      el('active').innerHTML = `<table>
-        <thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Program</th><th>DB</th><th>Cmd</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Query</th><th></th></tr></thead>
+      el('active').innerHTML = `<div style="overflow-x:auto;"><table style="min-width:1200px;">
+        <thead><tr><th>SPID</th><th>Login</th><th>Host</th><th>Program</th><th>DB</th><th>Cmd</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Query</th><th>Action</th></tr></thead>
         <tbody>${ac.map(a=>`<tr>
           <td class="mono">${esc(a.session_id)}</td>
           <td>${esc(a.login_name)}</td>
@@ -2231,8 +2231,14 @@ function render(DATA, PREV){
           <td class="num">${fmtInt(a.wait_ms)}</td>
           <td>${a.blocked_by?`<span class="pill crit">${a.blocked_by}</span>`:'-'}</td>
           <td><div class="query-text" title="${esc(a.query_text||'')}">${esc(a.query_text||'')}</div></td>
-          <td style="white-space:nowrap;"><button class="btn ghost" data-kill="${esc(a.session_id)}" style="padding:2px 8px;font-size:11px;color:var(--cp-danger);" title="KILL this session">☠</button></td>
-        </tr>`).join('')}</tbody></table>`;
+          <td style="white-space:nowrap;">
+            ${a.plan_handle_hex && a.plan_handle_hex !== '0x' ? `<button class="btn ghost view-plan" data-plan="${esc(a.plan_handle_hex)}" data-spid="${esc(a.session_id)}" style="padding:2px 8px;font-size:11px;" title="Show live execution plan">📄</button>` : ''}
+            <button class="btn ghost" data-kill="${esc(a.session_id)}" style="padding:2px 8px;font-size:11px;color:var(--cp-danger);" title="KILL this session">☠</button>
+          </td>
+        </tr>`).join('')}</tbody></table></div>`;
+      el('active').querySelectorAll('.view-plan').forEach(b => {
+        b.addEventListener('click', () => openLivePlan(b.dataset.plan, b.dataset.spid));
+      });
       el('active').querySelectorAll('[data-kill]').forEach(b => {
         b.addEventListener('click', async () => {
           const spid = b.dataset.kill;
@@ -2272,40 +2278,29 @@ function render(DATA, PREV){
       el('waiters-card').style.display = 'none';
     } else {
       el('waiters-card').style.display = '';
-      el('waiters').innerHTML = `<table style="width:100%;table-layout:fixed;">
-        <colgroup>
-          <col style="width:60px;">
-          <col style="width:110px;">
-          <col style="width:170px;">
-          <col style="width:80px;">
-          <col style="width:90px;">
-          <col style="width:140px;">
-          <col style="width:180px;">
-          <col>
-          <col style="width:70px;">
-        </colgroup>
+      el('waiters').innerHTML = `<div style="overflow-x:auto;"><table style="min-width:1300px;">
         <thead><tr>
           <th>SPID</th>
-          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">DB</th>
-          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Wait</th>
+          <th>DB</th>
+          <th>Wait</th>
           <th class="num">Wait ms</th>
-          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Blocked by</th>
-          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Resource</th>
-          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Login / Host</th>
-          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Query</th>
+          <th>Blocked by</th>
+          <th>Resource</th>
+          <th>Login / Host</th>
+          <th>Query</th>
           <th style="text-align:center;">Action</th>
         </tr></thead>
         <tbody>${wt.map(w=>`<tr>
           <td class="mono">${esc(w.session_id)}</td>
-          <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(w.db_name||'')}</td>
-          <td class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(w.wait_type||'')}">${esc(w.wait_type||'')}</td>
+          <td>${esc(w.db_name||'')}</td>
+          <td class="mono">${esc(w.wait_type||'')}</td>
           <td class="num">${fmtInt(w.wait_ms)}</td>
           <td>${w.blocked_by?`<span class="pill crit">${w.blocked_by}</span>`:'-'}</td>
-          <td class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(w.resource_description||'')}">${esc(w.resource_description||'')}</td>
-          <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(w.login_name||'')} @ ${esc(w.host_name||'')}">${esc(w.login_name||'')}<div class="mono" style="font-size:10px;color:var(--cp-text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(w.host_name||'')}</div></td>
-          <td style="overflow:hidden;"><div class="query-text" style="max-width:100%;" title="${esc(w.query_text||'')}">${esc(w.query_text||'')}</div></td>
-          <td style="text-align:center;">${w.plan_handle_hex && w.plan_handle_hex !== '0x' ? `<button class="btn ghost view-plan" data-plan="${esc(w.plan_handle_hex)}" data-spid="${esc(w.session_id)}" style="padding:2px 10px;font-size:13px;" title="Show live execution plan">📄</button>` : '<span style="color:var(--cp-text-soft);">—</span>'}</td>
-        </tr>`).join('')}</tbody></table>`;
+          <td class="mono" title="${esc(w.resource_description||'')}">${esc(w.resource_description||'')}</td>
+          <td>${esc(w.login_name||'')}<div class="mono" style="font-size:10px;color:var(--cp-text-soft);">${esc(w.host_name||'')}</div></td>
+          <td><div class="query-text" title="${esc(w.query_text||'')}">${esc(w.query_text||'')}</div></td>
+          <td style="text-align:center;white-space:nowrap;">${w.plan_handle_hex && w.plan_handle_hex !== '0x' ? `<button class="btn ghost view-plan" data-plan="${esc(w.plan_handle_hex)}" data-spid="${esc(w.session_id)}" style="padding:2px 10px;font-size:13px;" title="Show live execution plan">📄</button>` : '<span style="color:var(--cp-text-soft);">—</span>'}</td>
+        </tr>`).join('')}</tbody></table></div>`;
       el('waiters').querySelectorAll('.view-plan').forEach(b => {
         b.addEventListener('click', () => openLivePlan(b.dataset.plan, b.dataset.spid));
       });

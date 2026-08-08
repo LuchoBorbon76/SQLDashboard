@@ -469,7 +469,8 @@ SELECT
   JSON_QUERY((SELECT TOP 20 s.session_id, s.login_name, s.host_name, s.program_name,
      r.status, r.command, r.wait_type, r.wait_time AS wait_ms, r.blocking_session_id AS blocked_by,
      DB_NAME(r.database_id) AS db_name,
-     LEFT(REPLACE(REPLACE(st.text,CHAR(13),' '),CHAR(10),' '),200) AS query_text
+     LEFT(REPLACE(REPLACE(st.text,CHAR(13),' '),CHAR(10),' '),200) AS query_text,
+     CONVERT(NVARCHAR(200), r.plan_handle, 1) AS plan_handle_hex
    FROM sys.dm_exec_sessions s
    JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
    OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) st
