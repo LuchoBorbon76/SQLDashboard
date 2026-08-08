@@ -229,13 +229,21 @@ tr:hover td{background:var(--cp-surface-soft);}
 .field input:focus,.field select:focus{outline:none;border-color:var(--cp-accent);}
 .field .hint{font-size:11px;color:var(--cp-text-soft);margin-top:4px;}
 .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
-.modal-lg{max-width:900px;}
-.detail-tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--cp-border);}
-.detail-tab{background:none;border:none;color:var(--cp-text-muted);font-weight:600;font-size:12px;padding:8px 14px;cursor:pointer;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:0.06em;}
+.modal-lg{max-width:1200px;}
+.modal-lg.detail-modal{display:flex;flex-direction:column;max-height:92vh;padding:16px 20px;}
+.modal-lg.detail-modal > h2{margin:0 0 2px;font-size:16px;}
+.modal-lg.detail-modal > .sub{margin-bottom:10px;}
+.modal-lg.detail-modal > #detail-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;}
+.detail-tabs{display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid var(--cp-border);position:sticky;top:0;background:var(--cp-surface);z-index:5;}
+.detail-tab{background:none;border:none;color:var(--cp-text-muted);font-weight:600;font-size:12px;padding:6px 12px;cursor:pointer;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:0.06em;}
 .detail-tab.active{color:var(--cp-accent);border-bottom-color:var(--cp-accent);}
 .detail-tab:hover{color:var(--cp-text);}
 .tab-panel{display:none;}
 .tab-panel.active{display:block;}
+.detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px;}
+.detail-meta .mini-kpi{padding:6px 10px;}
+.detail-meta .mini-kpi .l{font-size:10px;}
+.detail-meta .mini-kpi .v{font-size:15px;margin-top:0;}
 .code-block{background:var(--cp-bg);border:1px solid var(--cp-border);border-radius:8px;padding:12px;font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.5;color:var(--cp-text);white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto;}
 .code-block.plan{white-space:pre;word-break:normal;}
 .detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;}
@@ -467,11 +475,11 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
 
 <!-- Detail modal (queries, indexes) -->
 <div class="modal-backdrop" id="detail-backdrop">
-  <div class="modal modal-lg">
+  <div class="modal modal-lg detail-modal">
     <h2 id="detail-title">Detail</h2>
     <div class="sub" id="detail-sub"></div>
     <div id="detail-body"><div class="skeleton" style="height:200px"></div></div>
-    <div class="actions">
+    <div class="actions" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--cp-border);">
       <button class="btn ghost" id="detail-close">Close</button>
     </div>
   </div>
@@ -2261,7 +2269,7 @@ async function openQueryDetail(db, qid){
           <div style="flex:1;"></div>
           <span id="plan-status" style="font-size:11px;color:var(--cp-text-muted);">Loading renderer…</span>
         </div>
-        <div id="plan-visual" style="border:1px solid var(--cp-border);border-radius:8px;background:#fff;color:#111;padding:8px;overflow:auto;max-height:60vh;min-height:300px;"></div>
+        <div id="plan-visual" style="border:1px solid var(--cp-border);border-radius:8px;background:#fff;color:#111;padding:8px;overflow:auto;height:calc(92vh - 320px);min-height:280px;"></div>
         <div style="margin-top:6px;font-size:11px;color:var(--cp-text-muted);">Rendered locally by <a href="https://github.com/JustinPealing/html-query-plan" target="_blank" rel="noopener" style="color:var(--cp-link);">html-query-plan</a> — the same library used by pastetheplan.com. Hover any operator for its properties.</div>
       </div>` : ''}
       <div id="tab-sql" class="tab-panel${hasPlan?'':' active'}">
@@ -2314,8 +2322,8 @@ async function renderVisualPlan(xml){
   const status = document.getElementById('plan-status');
   if (!host) return;
   try {
-    loadStylesheet('https://cdn.jsdelivr.net/npm/html-query-plan@3.4.0/dist/qp.min.css');
-    await loadScript('https://cdn.jsdelivr.net/npm/html-query-plan@3.4.0/dist/qp.min.js');
+    loadStylesheet('https://cdn.jsdelivr.net/npm/html-query-plan@2.6.1/css/qp.css');
+    await loadScript('https://cdn.jsdelivr.net/npm/html-query-plan@2.6.1/dist/qp.min.js');
     if (typeof QP === 'undefined' || !QP.showPlan) throw new Error('QP library missing after load');
     host.innerHTML = '';
     QP.showPlan(host, xml);
