@@ -437,21 +437,36 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       <div id="timeline" style="min-height:180px;"><div class="skeleton" style="height:180px"></div></div>
     </div>
 
-    <div class="grid three">
-      <div class="card"><h2>Top Waits</h2><div class="card-sub">Cumulative since instance start — where SQL Server spends its time</div><div id="waits"><div class="skeleton" style="height:200px"></div></div></div>
-      <div class="card" id="buffer-card"><h2>Buffer Pool by Database</h2><div class="card-sub">RAM used for cached pages per DB</div><div class="donut" id="buffer-donut"><div class="skeleton" style="height:200px;width:100%"></div></div></div>
+    <!-- ============ Right now: who's stuck? ============ -->
+    <div class="card" id="blocking-card" style="margin-bottom:16px;display:none;">
+      <h2>⚠ Blocking chain</h2>
+      <div class="card-sub" id="blocking-sub">Head blockers and their downstream victims</div>
+      <div id="blocking-tree"></div>
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <h2>Top Queries by CPU (Query Store)</h2>
-      <div class="card-sub">Highest cumulative CPU across all user databases with Query Store enabled</div>
-      <div class="scroll">
-      <table><thead><tr>
-        <th>DB</th><th>QID</th><th class="num">Execs</th><th class="num">Total CPU (ms)</th>
-        <th class="num">Avg CPU (ms)</th><th class="num">Avg Dur (ms)</th><th class="num">Avg Reads</th>
-        <th>Last Exec</th><th>Query</th>
-      </tr></thead><tbody id="top-queries"></tbody></table>
-      </div>
+      <h2>Active Sessions</h2>
+      <div class="card-sub">Non-system requests currently running · click ☠ to KILL, 📄 to view live plan</div>
+      <div id="active"></div>
+    </div>
+
+    <div class="card" id="waiters-card" style="margin-bottom:16px;display:none;">
+      <h2>Waiting Tasks (with plan)</h2>
+      <div class="card-sub">Currently-blocked or waiting tasks — click 📄 to view the executing plan</div>
+      <div id="waiters"></div>
+    </div>
+
+    <!-- ============ Aggregated wait analysis ============ -->
+    <div class="grid">
+      <div class="card"><h2>Top Waits</h2><div class="card-sub">Cumulative since instance start — where SQL Server spends its time</div><div id="waits"><div class="skeleton" style="height:200px"></div></div></div>
+      <div class="card" id="latches-card"><h2>Latch Contention</h2><div class="card-sub">Non-BUFFER latches — internal memory-structure contention</div><div id="latches"></div></div>
+    </div>
+
+    <!-- ============ Resources ============ -->
+    <div class="card" id="buffer-card" style="margin-bottom:16px;">
+      <h2>Buffer Pool by Database</h2>
+      <div class="card-sub">RAM used for cached pages per DB</div>
+      <div class="donut" id="buffer-donut"><div class="skeleton" style="height:200px;width:100%"></div></div>
     </div>
 
     <div class="grid one">
@@ -467,12 +482,23 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       </div>
     </div>
 
+    <!-- ============ Tuning ============ -->
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Top Queries by CPU (Query Store)</h2>
+      <div class="card-sub">Highest cumulative CPU across all user databases with Query Store enabled</div>
+      <div class="scroll">
+      <table><thead><tr>
+        <th>DB</th><th>QID</th><th class="num">Execs</th><th class="num">Total CPU (ms)</th>
+        <th class="num">Avg CPU (ms)</th><th class="num">Avg Dur (ms)</th><th class="num">Avg Reads</th>
+        <th>Last Exec</th><th>Query</th>
+      </tr></thead><tbody id="top-queries"></tbody></table>
+      </div>
+    </div>
+
     <div class="grid">
       <div class="card"><h2>Missing Indexes</h2><div class="card-sub">Optimizer-suggested indexes ranked by improvement score</div><div id="missing-idx"></div></div>
       <div class="card" id="tempdb-card"><h2>TempDB Usage</h2><div class="card-sub">Space allocation breakdown</div><div id="tempdb"></div></div>
     </div>
-
-    <div class="card"><h2>Active Sessions</h2><div class="card-sub">Non-system requests currently running</div><div id="active"></div></div>
 
   </main>
 </div>
@@ -2204,7 +2230,7 @@ function render(DATA, PREV){
           <td class="num">${fmtInt(a.wait_ms)}</td>
           <td>${a.blocked_by?`<span class="pill crit">${a.blocked_by}</span>`:'-'}</td>
           <td><div class="query-text" title="${esc(a.query_text||'')}">${esc(a.query_text||'')}</div></td>
-          <td><button class="btn ghost" data-kill="${esc(a.session_id)}" style="padding:2px 8px;font-size:11px;color:var(--cp-danger);" title="KILL this session">☠</button></td>
+          <td style="white-space:nowrap;"><button class="btn ghost" data-kill="${esc(a.session_id)}" style="padding:2px 8px;font-size:11px;color:var(--cp-danger);" title="KILL this session">☠</button></td>
         </tr>`).join('')}</tbody></table>`;
       el('active').querySelectorAll('[data-kill]').forEach(b => {
         b.addEventListener('click', async () => {
@@ -2215,6 +2241,51 @@ function render(DATA, PREV){
           if (!r.ok) { alert('Kill failed: ' + (d.error || 'unknown')); return; }
           fetchMetrics();
         });
+      });
+    }
+
+    // === Latches ===
+    const lat = DATA.latches || [];
+    if (lat.length === 0) {
+      el('latches').innerHTML = '<div class="empty">✓ No significant non-BUFFER latch waits.</div>';
+    } else {
+      const maxLat = Math.max(1, ...lat.map(l => Number(l.wait_time_s)||0));
+      el('latches').innerHTML = lat.map(l => {
+        const wt = Number(l.wait_time_s)||0;
+        const pct = (wt/maxLat*100);
+        const pctText = (l.pct != null) ? Number(l.pct).toFixed(1)+'%' : '';
+        return `<div class="bar-row">
+          <div class="name mono" title="${esc(l.latch_class)}">${esc(l.latch_class)}</div>
+          <div class="bar-bg"><div class="bar-fill" style="width:${pct.toFixed(1)}%;"></div></div>
+          <div class="val">${wt.toFixed(1)}s <span style="color:var(--cp-text-soft);">${pctText}</span></div>
+        </div>`;
+      }).join('');
+    }
+
+    // === Blocking chain ===
+    renderBlockingChain(DATA.blocking || []);
+
+    // === Waiting Tasks with plan ===
+    const wt = DATA.waiters || [];
+    if (wt.length === 0) {
+      el('waiters-card').style.display = 'none';
+    } else {
+      el('waiters-card').style.display = '';
+      el('waiters').innerHTML = `<table>
+        <thead><tr><th>SPID</th><th>DB</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Resource</th><th>Login / Host</th><th>Query</th><th></th></tr></thead>
+        <tbody>${wt.map(w=>`<tr>
+          <td class="mono">${esc(w.session_id)}</td>
+          <td>${esc(w.db_name||'')}</td>
+          <td class="mono">${esc(w.wait_type||'')}</td>
+          <td class="num">${fmtInt(w.wait_ms)}</td>
+          <td>${w.blocked_by?`<span class="pill crit">${w.blocked_by}</span>`:'-'}</td>
+          <td class="mono" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(w.resource_description||'')}">${esc(w.resource_description||'')}</td>
+          <td>${esc(w.login_name||'')}<div class="mono" style="font-size:10px;color:var(--cp-text-soft);">${esc(w.host_name||'')}</div></td>
+          <td><div class="query-text" title="${esc(w.query_text||'')}">${esc(w.query_text||'')}</div></td>
+          <td>${w.plan_handle_hex && w.plan_handle_hex !== '0x' ? `<button class="btn ghost view-plan" data-plan="${esc(w.plan_handle_hex)}" data-spid="${esc(w.session_id)}" style="padding:2px 8px;font-size:11px;" title="Show live execution plan">📄</button>` : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+      el('waiters').querySelectorAll('.view-plan').forEach(b => {
+        b.addEventListener('click', () => openLivePlan(b.dataset.plan, b.dataset.spid));
       });
     }
   } catch(e){
@@ -2335,6 +2406,88 @@ async function openQueryDetail(db, qid){
     if (hasPlan) renderVisualPlan(planXml);
   } catch(e){
     openDetail(`Query ${qid} · ${db}`, '', `<div class="error-banner show">Fetch failed: ${esc(e.message)}</div>`);
+  }
+}
+
+function renderBlockingChain(rows) {
+  const card = el('blocking-card');
+  if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  // Build tree: nodes keyed by session_id; root = blocking_session_id == 0
+  const nodes = new Map();
+  for (const r of rows) {
+    nodes.set(Number(r.session_id), { ...r, session_id: Number(r.session_id), blocked_by: Number(r.blocking_session_id||0), children: [] });
+  }
+  const roots = [];
+  for (const n of nodes.values()) {
+    if (n.blocked_by && nodes.has(n.blocked_by)) nodes.get(n.blocked_by).children.push(n);
+    else if (!n.blocked_by || n.blocked_by === 0) roots.push(n);
+    else roots.push(n); // Head blocker not captured (e.g., orphan) — treat as root
+  }
+  const totalChain = rows.length;
+  const heads = roots.length;
+  el('blocking-sub').textContent = `${heads} head blocker${heads===1?'':'s'} · ${totalChain} session${totalChain===1?'':'s'} in the chain — top-level = the actual culprit`;
+  const renderNode = (n, depth) => {
+    const isHead = !n.blocked_by || n.blocked_by === 0;
+    const badge = isHead
+      ? '<span class="pill crit" style="font-size:10px;">HEAD BLOCKER</span>'
+      : `<span class="pill muted" style="font-size:10px;">blocked by ${n.blocked_by}</span>`;
+    const planBtn = (n.plan_handle_hex && n.plan_handle_hex !== '0x')
+      ? `<button class="btn ghost view-plan" data-plan="${esc(n.plan_handle_hex)}" data-spid="${esc(n.session_id)}" style="padding:2px 8px;font-size:11px;" title="Show live execution plan">📄 plan</button>`
+      : '';
+    const killBtn = `<button class="btn ghost" data-kill-blk="${esc(n.session_id)}" style="padding:2px 8px;font-size:11px;color:var(--cp-danger);" title="KILL this session">☠ kill</button>`;
+    let html = `<div style="margin-left:${depth*24}px;padding:8px 10px;border-left:${isHead?'3px solid var(--cp-danger)':'2px solid var(--cp-border)'};margin-bottom:6px;background:${isHead?'rgba(220,38,38,0.06)':'var(--cp-surface-soft)'};border-radius:6px;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;">
+        <span style="font-weight:600;font-family:Consolas,monospace;">SPID ${n.session_id}</span>
+        ${badge}
+        ${n.wait_type ? `<span class="mono" style="color:var(--cp-text-muted);">${esc(n.wait_type)} · ${fmtInt(n.wait_ms)} ms</span>` : ''}
+        <span style="color:var(--cp-text-muted);">${esc(n.db_name||'?')} · ${esc(n.command||'')}</span>
+        <div style="flex:1;"></div>
+        ${planBtn}
+        ${killBtn}
+      </div>
+      <div style="font-size:11px;color:var(--cp-text-muted);margin-top:2px;">${esc(n.login_name||'')} @ ${esc(n.host_name||'')} · ${esc(n.program_name||'')}</div>
+      ${n.query_text ? `<div class="mono" style="font-size:11px;color:var(--cp-text-soft);margin-top:4px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(n.query_text)}">${esc(n.query_text)}</div>` : ''}
+    </div>`;
+    for (const c of n.children) html += renderNode(c, depth + 1);
+    return html;
+  };
+  el('blocking-tree').innerHTML = roots.map(r => renderNode(r, 0)).join('');
+  el('blocking-tree').querySelectorAll('.view-plan').forEach(b => {
+    b.addEventListener('click', () => openLivePlan(b.dataset.plan, b.dataset.spid));
+  });
+  el('blocking-tree').querySelectorAll('[data-kill-blk]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const spid = b.dataset.killBlk;
+      if (!(await confirmDialog(`KILL session ${spid}?`, 'This immediately terminates the session on the SQL Server. Any uncommitted work is rolled back.'))) return;
+      const r = await fetch('/api/kill-session', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({serverId: activeServerId, sessionId: Number(spid)})});
+      const d = await r.json();
+      if (!r.ok) { alert('Kill failed: ' + (d.error || 'unknown')); return; }
+      fetchMetrics();
+    });
+  });
+}
+
+async function openLivePlan(planHandleHex, spid) {
+  openDetail(`Live plan · SPID ${spid}`, 'Fetching plan from sys.dm_exec_query_plan…', `<div class="skeleton" style="height:400px;"></div>`);
+  try {
+    const r = await fetch('/api/live-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({serverId: activeServerId, planHandleHex}) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    openDetail(`Live plan · SPID ${spid}`, `Plan handle: ${esc(planHandleHex.slice(0,40))}…`, `
+      <div id="plan-visual-toolbar" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+        <button class="btn ghost" id="plan-zoom-out" style="padding:4px 10px;">−</button>
+        <span id="plan-zoom-label" style="font-size:11px;color:var(--cp-text-muted);min-width:44px;text-align:center;">100%</span>
+        <button class="btn ghost" id="plan-zoom-in" style="padding:4px 10px;">+</button>
+        <button class="btn ghost" id="plan-zoom-fit" style="padding:4px 10px;font-size:11px;">Fit</button>
+        <div style="flex:1;"></div>
+        <span id="plan-status" style="font-size:11px;color:var(--cp-text-muted);">Loading renderer…</span>
+      </div>
+      <div id="plan-visual" style="border:1px solid var(--cp-border);border-radius:8px;background:#fff;color:#111;padding:8px;overflow:auto;"></div>
+    `);
+    renderVisualPlan(data.xml);
+  } catch (e) {
+    openDetail(`Live plan · SPID ${spid}`, '', `<div class="error-banner show">Failed to fetch live plan: ${esc(e.message)}</div>`);
   }
 }
 

@@ -482,7 +482,48 @@ SELECT
      SUM(version_store_reserved_page_count)*8/1024 AS version_store_mb,
      SUM(unallocated_extent_page_count)*8/1024 AS free_mb
    FROM tempdb.sys.dm_db_file_space_usage
-   FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS tempdb
+   FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS tempdb,
+  JSON_QUERY((SELECT TOP 10 latch_class,
+     CAST(wait_time_ms/1000.0 AS DECIMAL(18,3)) AS wait_time_s,
+     waiting_requests_count AS tasks,
+     CAST(wait_time_ms*1.0/NULLIF(waiting_requests_count,0) AS DECIMAL(18,2)) AS avg_wait_ms,
+     CAST(100.0*wait_time_ms/NULLIF(SUM(wait_time_ms) OVER (),0) AS DECIMAL(5,2)) AS pct
+   FROM sys.dm_os_latch_stats
+   WHERE latch_class NOT IN (N'BUFFER') AND wait_time_ms > 0
+   ORDER BY wait_time_ms DESC
+   FOR JSON PATH)) AS latches,
+  JSON_QUERY((
+    SELECT session_id, blocking_session_id, wait_type, wait_ms, wait_resource, db_name,
+           command, login_name, host_name, program_name, query_text, plan_handle_hex
+    FROM (
+      SELECT r.session_id, r.blocking_session_id, r.wait_type, r.wait_time AS wait_ms,
+             r.wait_resource, DB_NAME(r.database_id) AS db_name, r.command,
+             s.login_name, s.host_name, s.program_name,
+             LEFT(REPLACE(REPLACE(st.text,CHAR(13),' '),CHAR(10),' '),200) AS query_text,
+             CONVERT(NVARCHAR(200), r.plan_handle, 1) AS plan_handle_hex
+      FROM sys.dm_exec_requests r
+      JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+      OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) st
+      WHERE s.is_user_process = 1
+        AND (r.blocking_session_id <> 0
+             OR r.session_id IN (SELECT DISTINCT blocking_session_id FROM sys.dm_exec_requests WHERE blocking_session_id <> 0))
+    ) B
+    ORDER BY blocking_session_id, wait_ms DESC
+    FOR JSON PATH)) AS blocking,
+  JSON_QUERY((SELECT TOP 20 owt.session_id, owt.wait_duration_ms AS wait_ms, owt.wait_type,
+     owt.blocking_session_id AS blocked_by, owt.resource_description,
+     es.program_name, es.login_name, es.host_name,
+     DB_NAME(er.database_id) AS db_name,
+     LEFT(REPLACE(REPLACE(st.text,CHAR(13),' '),CHAR(10),' '),200) AS query_text,
+     CONVERT(NVARCHAR(200), er.plan_handle, 1) AS plan_handle_hex,
+     es.cpu_time, es.memory_usage
+   FROM sys.dm_os_waiting_tasks owt
+   INNER JOIN sys.dm_exec_sessions es ON owt.session_id = es.session_id
+   INNER JOIN sys.dm_exec_requests er ON es.session_id = er.session_id
+   OUTER APPLY sys.dm_exec_sql_text(er.sql_handle) st
+   WHERE es.is_user_process = 1 AND owt.wait_duration_ms > 0
+   ORDER BY owt.wait_duration_ms DESC
+   FOR JSON PATH)) AS waiters
 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
 `;
 
@@ -627,6 +668,9 @@ async function collectFor(cfg) {
   data.file_io ??= [];
   data.missing_indexes ??= [];
   data.active ??= [];
+  data.latches ??= [];
+  data.blocking ??= [];
+  data.waiters ??= [];
   data.instance ??= {};
   if (data.buffer_pool === undefined) data.buffer_pool = [];
   if (data.tempdb === undefined || (useAzureDbBatch && (!data.tempdb || Object.keys(data.tempdb).length === 0))) {
@@ -1248,6 +1292,41 @@ Rules:
         return json(res, 200, { answer, model, contextBytes: JSON.stringify(ctx).length });
       } catch (e) {
         return json(res, 400, { error: 'AI call failed: ' + e.message.slice(0, 500) });
+      }
+    }
+
+    // ==============================
+    // Live plan by plan_handle (for waiter/blocker rows)
+    // ==============================
+    if (p === '/api/live-plan' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!body.serverId || !body.planHandleHex) return json(res, 400, { error: 'serverId + planHandleHex required' });
+      if (!/^0x[0-9a-fA-F]{2,600}$/.test(body.planHandleHex)) return json(res, 400, { error: 'invalid plan_handle format' });
+      const list = await loadServers();
+      const s = list.find(x => x.id === body.serverId);
+      if (!s) return json(res, 404, { error: 'server not found' });
+      try {
+        const cfg = await resolveServer(s);
+        if (cfg.auth === 'azuread-interactive') await ensureAzCliSession(cfg);
+        const useAzCli = cfg.auth === 'azuread-interactive';
+        const outFile = path.join(TMP_DIR, `plan-${cfg.id}-${Date.now()}.out`);
+        const sqlFile = path.join(TMP_DIR, `plan-${cfg.id}-${Date.now()}.sql`);
+        const sql = `SET NOCOUNT ON; SET ANSI_WARNINGS OFF;
+SELECT CAST(query_plan AS NVARCHAR(MAX)) AS xml_plan FROM sys.dm_exec_query_plan(${body.planHandleHex});`;
+        await writeFile(sqlFile, sql, 'utf8');
+        const args = buildSqlcmdArgs(cfg, ['-l','10','-t','20','-h','-1','-w','65535','-y','0','-Y','0','-i',sqlFile,'-o',outFile], { useAccessToken: useAzCli });
+        await new Promise((resolve, reject) => {
+          execFile(pickSqlcmd(cfg), args, { timeout: 30000, windowsHide: true, encoding: 'utf8' },
+            (err, stdout, stderr) => err ? reject(new Error((stderr||err.message).slice(0,300))) : resolve());
+        });
+        const raw = (await readFile(outFile, 'utf8'));
+        // Extract from first <ShowPlanXML through last </ShowPlanXML>
+        const start = raw.indexOf('<ShowPlanXML');
+        const end = raw.lastIndexOf('</ShowPlanXML>');
+        if (start < 0 || end < 0) return json(res, 400, { error: 'no plan XML returned — request may have finished' });
+        return json(res, 200, { xml: raw.slice(start, end + '</ShowPlanXML>'.length) });
+      } catch (e) {
+        return json(res, 400, { error: e.message.slice(0, 400) });
       }
     }
 
