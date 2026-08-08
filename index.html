@@ -2284,7 +2284,17 @@ function render(DATA, PREV){
           <col>
           <col style="width:70px;">
         </colgroup>
-        <thead><tr><th>SPID</th><th>DB</th><th>Wait</th><th class="num">Wait ms</th><th>Blocked by</th><th>Resource</th><th>Login / Host</th><th>Query</th><th style="text-align:center;">Action</th></tr></thead>
+        <thead><tr>
+          <th>SPID</th>
+          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">DB</th>
+          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Wait</th>
+          <th class="num">Wait ms</th>
+          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Blocked by</th>
+          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Resource</th>
+          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Login / Host</th>
+          <th style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Query</th>
+          <th style="text-align:center;">Action</th>
+        </tr></thead>
         <tbody>${wt.map(w=>`<tr>
           <td class="mono">${esc(w.session_id)}</td>
           <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(w.db_name||'')}</td>
