@@ -146,6 +146,7 @@ header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
 .badge.crit{background:rgba(220,38,38,0.12);color:var(--cp-danger);}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 .grid.three{grid-template-columns:2fr 1fr;}
+.grid.one{grid-template-columns:1fr;}
 @media(max-width:960px){.grid,.grid.three{grid-template-columns:1fr;}}
 .card{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;padding:20px;overflow:hidden;min-height:120px;}
 .card h2{margin:0 0 4px;font-size:15px;font-weight:600;letter-spacing:-0.01em;}
@@ -452,15 +453,15 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       </div>
     </div>
 
-    <div class="grid">
+    <div class="grid one">
       <div class="card"><h2>File I/O Latency</h2><div class="card-sub" id="fileio-sub">Per-file read/write stalls</div>
         <div class="scroll compact"><table><thead><tr>
-          <th>Database</th><th>File</th><th>Type</th><th class="num">MB</th><th class="num">R ms</th><th class="num">W ms</th>
+          <th>Database</th><th>File</th><th>Type</th><th class="num">MB</th><th class="num">Read ms</th><th class="num">Write ms</th>
         </tr></thead><tbody id="file-io"></tbody></table></div>
       </div>
       <div class="card"><h2>Databases</h2><div class="card-sub">Size, state, and backup age</div>
         <div class="scroll compact"><table><thead><tr>
-          <th>Name</th><th>State</th><th>Rec.</th><th class="num">Data MB</th><th class="num">Log MB</th><th>Last Full</th><th>QS</th>
+          <th>Name</th><th>State</th><th>Recovery</th><th class="num">Data MB</th><th class="num">Log MB</th><th>Last Full</th><th>QS</th>
         </tr></thead><tbody id="databases"></tbody></table></div>
       </div>
     </div>
