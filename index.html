@@ -157,6 +157,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--cp-border);vertical-align:top;o
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:var(--cp-surface-soft);}
 .num{text-align:right;font-variant-numeric:tabular-nums;}
+.ctr{text-align:center;}
 .mono{font-family:Consolas,"Courier New",monospace;font-size:12px;color:var(--cp-text-muted);}
 .query-text{font-family:Consolas,"Courier New",monospace;font-size:11px;color:var(--cp-text-soft);max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help;}
 .query-text:hover{white-space:normal;overflow:visible;color:var(--cp-text);}
@@ -461,7 +462,7 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
       </div>
       <div class="card"><h2>Databases</h2><div class="card-sub">Size, state, and backup age</div>
         <div class="scroll compact"><table><thead><tr>
-          <th>Name</th><th>State</th><th>Recovery</th><th class="num">Data MB</th><th class="num">Log MB</th><th>Last Full</th><th>Query Store</th>
+          <th>Name</th><th>State</th><th>Recovery</th><th class="num">Data MB</th><th class="num">Log MB</th><th class="ctr">Last Full</th><th class="ctr">Query Store</th>
         </tr></thead><tbody id="databases"></tbody></table></div>
       </div>
     </div>
@@ -2143,8 +2144,8 @@ function render(DATA, PREV){
         <td class="mono">${esc(d.recovery)}</td>
         <td class="num">${fmtN(d.data_mb)}</td>
         <td class="num">${fmtN(d.log_mb)}</td>
-        <td>${['tempdb','model','master','msdb'].includes(d.name)?'<span class="pill muted">system</span>':backupPill}</td>
-        <td>${d.qs_on?'<span class="pill ok">on</span>':'<span class="pill muted">off</span>'}</td>
+        <td class="ctr">${['tempdb','model','master','msdb'].includes(d.name)?'<span class="pill muted">system</span>':backupPill}</td>
+        <td class="ctr">${d.qs_on?'<span class="pill ok">on</span>':'<span class="pill muted">off</span>'}</td>
       </tr>`;
     }).join('');
 
