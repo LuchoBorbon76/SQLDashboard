@@ -1314,7 +1314,7 @@ Rules:
         const sql = `SET NOCOUNT ON; SET ANSI_WARNINGS OFF;
 SELECT CAST(query_plan AS NVARCHAR(MAX)) AS xml_plan FROM sys.dm_exec_query_plan(${body.planHandleHex});`;
         await writeFile(sqlFile, sql, 'utf8');
-        const args = buildSqlcmdArgs(cfg, ['-l','10','-t','20','-h','-1','-w','65535','-y','0','-Y','0','-i',sqlFile,'-o',outFile], { useAccessToken: useAzCli });
+        const args = buildSqlcmdArgs(cfg, ['-l','10','-t','20','-w','65535','-y','0','-Y','0','-i',sqlFile,'-o',outFile], { useAccessToken: useAzCli });
         await new Promise((resolve, reject) => {
           execFile(pickSqlcmd(cfg), args, { timeout: 30000, windowsHide: true, encoding: 'utf8' },
             (err, stdout, stderr) => err ? reject(new Error((stderr||err.message).slice(0,300))) : resolve());
