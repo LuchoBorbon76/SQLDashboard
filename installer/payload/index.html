@@ -252,7 +252,12 @@ tr:hover td{background:var(--cp-surface-soft);}
 .detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px;}
 .detail-meta .mini-kpi{padding:6px 10px;}
 .detail-meta .mini-kpi .l{font-size:10px;}
+/* Detail modal + html-query-plan tooltip visibility fixes */
 .detail-meta .mini-kpi .v{font-size:15px;margin-top:0;}
+/* Tooltip lives inside .qp-node — while hovering we re-parent it to <body> and give it high z-index */
+body > .qp-tt{position:fixed !important;z-index:99999 !important;background:#fffde7 !important;border:1px solid #999 !important;border-radius:4px !important;padding:6px 8px !important;box-shadow:0 8px 24px rgba(0,0,0,0.35) !important;pointer-events:none;color:#111 !important;display:block !important;}
+/* html-query-plan tooltips must float above our modal (backdrop z-index=100) */
+.qp-tt, .qp-tooltip, div.qp-node-tooltip{z-index:9999 !important;position:fixed !important;}
 .code-block{background:var(--cp-bg);border:1px solid var(--cp-border);border-radius:8px;padding:12px;font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.5;color:var(--cp-text);white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto;}
 .code-block.plan{white-space:pre;word-break:normal;}
 .detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;}
@@ -2336,6 +2341,47 @@ async function renderVisualPlan(xml){
     if (typeof QP === 'undefined' || !QP.showPlan) throw new Error('QP library missing after load');
     host.innerHTML = '';
     QP.showPlan(host, xml);
+    // Reparent tooltips to <body> on hover so they escape the modal's clipping context
+    let activeTt = null;
+    let ttPlaceholder = null;
+    host.querySelectorAll('.qp-node').forEach(node => {
+      const tt = node.querySelector(':scope > .qp-tt');
+      if (!tt) return;
+      const moveOver = (e) => {
+        if (activeTt !== tt) {
+          if (activeTt && ttPlaceholder) {
+            // Return previous tooltip
+            ttPlaceholder.replaceWith(activeTt);
+            activeTt.style.cssText = activeTt.dataset.origStyle || '';
+          }
+          activeTt = tt;
+          ttPlaceholder = document.createComment('qp-tt-placeholder');
+          tt.dataset.origStyle = tt.style.cssText;
+          tt.parentNode.insertBefore(ttPlaceholder, tt);
+          document.body.appendChild(tt);
+        }
+        // Position near cursor, but stay in viewport
+        const pad = 12;
+        const w = tt.offsetWidth || 300;
+        const h = tt.offsetHeight || 200;
+        let x = e.clientX + pad;
+        let y = e.clientY + pad;
+        if (x + w > window.innerWidth - 8) x = e.clientX - w - pad;
+        if (y + h > window.innerHeight - 8) y = e.clientY - h - pad;
+        tt.style.left = Math.max(4, x) + 'px';
+        tt.style.top = Math.max(4, y) + 'px';
+      };
+      const leave = () => {
+        if (activeTt === tt && ttPlaceholder) {
+          ttPlaceholder.replaceWith(tt);
+          tt.style.cssText = tt.dataset.origStyle || '';
+          activeTt = null; ttPlaceholder = null;
+        }
+      };
+      node.addEventListener('mouseenter', moveOver);
+      node.addEventListener('mousemove', moveOver);
+      node.addEventListener('mouseleave', leave);
+    });
     if (status) status.textContent = 'Rendered · hover for details';
     // Zoom controls
     let zoom = 100;
