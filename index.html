@@ -2243,14 +2243,28 @@ async function openQueryDetail(db, qid){
     const queryText = p0.query_sql_text || '';
     const planXml = p0.query_plan || '';
     const planUrl = 'https://www.brentozar.com/pastetheplan/';
+    const hasPlan = !!(planXml && planXml.trim());
     const body = `
       ${meta}
       <div class="detail-tabs">
-        <button class="detail-tab active" data-tab="sql">SQL Text</button>
+        ${hasPlan ? '<button class="detail-tab active" data-tab="visual">Visual Plan</button>' : ''}
+        <button class="detail-tab ${hasPlan?'':'active'}" data-tab="sql">SQL Text</button>
         <button class="detail-tab" data-tab="plan">Execution Plan (XML)</button>
         <button class="detail-tab" data-tab="ssms">Open in SSMS / PasteThePlan</button>
       </div>
-      <div id="tab-sql" class="tab-panel active">
+      ${hasPlan ? `<div id="tab-visual" class="tab-panel active">
+        <div id="plan-visual-toolbar" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+          <button class="btn ghost" id="plan-zoom-out" style="padding:4px 10px;">−</button>
+          <span id="plan-zoom-label" style="font-size:11px;color:var(--cp-text-muted);min-width:44px;text-align:center;">100%</span>
+          <button class="btn ghost" id="plan-zoom-in" style="padding:4px 10px;">+</button>
+          <button class="btn ghost" id="plan-zoom-fit" style="padding:4px 10px;font-size:11px;">Fit</button>
+          <div style="flex:1;"></div>
+          <span id="plan-status" style="font-size:11px;color:var(--cp-text-muted);">Loading renderer…</span>
+        </div>
+        <div id="plan-visual" style="border:1px solid var(--cp-border);border-radius:8px;background:#fff;color:#111;padding:8px;overflow:auto;max-height:60vh;min-height:300px;"></div>
+        <div style="margin-top:6px;font-size:11px;color:var(--cp-text-muted);">Rendered locally by <a href="https://github.com/JustinPealing/html-query-plan" target="_blank" rel="noopener" style="color:var(--cp-link);">html-query-plan</a> — the same library used by pastetheplan.com. Hover any operator for its properties.</div>
+      </div>` : ''}
+      <div id="tab-sql" class="tab-panel${hasPlan?'':' active'}">
         <div class="copy-wrap">
           <button class="copy-btn" data-copy="query-sql">Copy</button>
           <pre class="code-block" id="query-sql">${esc(queryText)}</pre>
@@ -2274,8 +2288,60 @@ async function openQueryDetail(db, qid){
       </div>
     `;
     openDetail(`Query ${qid} · ${db}`, sub, body);
+    if (hasPlan) renderVisualPlan(planXml);
   } catch(e){
     openDetail(`Query ${qid} · ${db}`, '', `<div class="error-banner show">Fetch failed: ${esc(e.message)}</div>`);
+  }
+}
+
+function loadScript(src){
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.dataset.src = src; s.async = true;
+    s.onload = resolve; s.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
+function loadStylesheet(href){
+  if (document.querySelector(`link[data-href="${href}"]`)) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = href; l.dataset.href = href;
+  document.head.appendChild(l);
+}
+async function renderVisualPlan(xml){
+  const host = document.getElementById('plan-visual');
+  const status = document.getElementById('plan-status');
+  if (!host) return;
+  try {
+    loadStylesheet('https://cdn.jsdelivr.net/npm/html-query-plan@3.4.0/dist/qp.min.css');
+    await loadScript('https://cdn.jsdelivr.net/npm/html-query-plan@3.4.0/dist/qp.min.js');
+    if (typeof QP === 'undefined' || !QP.showPlan) throw new Error('QP library missing after load');
+    host.innerHTML = '';
+    QP.showPlan(host, xml);
+    if (status) status.textContent = 'Rendered · hover for details';
+    // Zoom controls
+    let zoom = 100;
+    const inner = host.firstElementChild;
+    const applyZoom = () => {
+      if (!inner) return;
+      inner.style.transformOrigin = 'top left';
+      inner.style.transform = `scale(${zoom/100})`;
+      const el = document.getElementById('plan-zoom-label');
+      if (el) el.textContent = zoom + '%';
+    };
+    document.getElementById('plan-zoom-in').onclick = () => { zoom = Math.min(300, zoom + 10); applyZoom(); };
+    document.getElementById('plan-zoom-out').onclick = () => { zoom = Math.max(30, zoom - 10); applyZoom(); };
+    document.getElementById('plan-zoom-fit').onclick = () => {
+      if (!inner) return;
+      const cw = host.clientWidth - 16;
+      const iw = inner.scrollWidth || inner.getBoundingClientRect().width;
+      zoom = iw > 0 ? Math.max(30, Math.min(100, Math.floor(cw / iw * 100))) : 100;
+      applyZoom();
+    };
+  } catch (e) {
+    host.innerHTML = `<div style="padding:20px;color:#b91c1c;background:#fee2e2;border-radius:6px;">Failed to render visual plan: ${esc(e.message)}. The XML tab still works.</div>`;
+    if (status) status.textContent = 'Render failed';
   }
 }
 
