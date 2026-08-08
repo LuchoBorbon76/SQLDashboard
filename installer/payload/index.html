@@ -103,8 +103,9 @@ header.topbar .sub{color:var(--cp-text-muted);font-size:12px;margin-top:2px;}
 .controls .tb.icon-only{padding:0;width:38px;}
 .controls .tb .cnt-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--cp-danger);color:#fff;font-size:9px;font-weight:700;border-radius:8px;display:none;align-items:center;justify-content:center;line-height:1;box-shadow:0 0 0 2px var(--cp-surface);}
 .controls .tb .cnt-badge.show{display:inline-flex;}
-.controls-row2{display:flex;align-items:center;justify-content:center;gap:14px;font-size:12px;color:var(--cp-text-muted);}
-.controls-row2 #live-status{min-width:220px;text-align:left;font-variant-numeric:tabular-nums;}
+.controls-row2{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;font-size:12px;color:var(--cp-text-muted);}
+.controls-row2 .refresh-status{display:flex;align-items:center;gap:10px;justify-self:start;}
+.controls-row2 #live-status{min-width:200px;text-align:left;font-variant-numeric:tabular-nums;}
 .controls-row2 .btn.primary{padding:8px 20px;font-size:13px;}
 .live-indicator{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--cp-text-muted);}
 .live-dot{width:8px;height:8px;border-radius:50%;background:var(--cp-success);box-shadow:0 0 0 0 var(--cp-success);animation:live-pulse 1.5s infinite;}
@@ -360,9 +361,12 @@ tr.clickable:hover td:first-child{border-left:3px solid var(--cp-accent);padding
           <button class="btn ghost tb" id="export-btn" title="Download current metrics as JSON"><span class="ic">⬇</span><span>Export</span></button>
         </div>
         <div class="controls-row2">
+          <div></div>
           <button class="btn primary" id="refresh-btn">Refresh now</button>
-          <div class="live-dot" id="live-dot"></div>
-          <div id="live-status">Loading…</div>
+          <div class="refresh-status">
+            <div class="live-dot" id="live-dot"></div>
+            <div id="live-status">Loading…</div>
+          </div>
         </div>
       </div>
       <div class="topbar-right">
